@@ -1,0 +1,154 @@
+[
+  {
+    "file": "00.png",
+    "label": "561bf",
+    "split": "background"
+  },
+  {
+    "file": "01.png",
+    "label": "5d5ca",
+    "split": "background"
+  },
+  {
+    "file": "02.png",
+    "label": "20749",
+    "split": "background"
+  },
+  {
+    "file": "03.png",
+    "label": "e64b4",
+    "split": "background"
+  },
+  {
+    "file": "04.png",
+    "label": "57ace",
+    "split": "background"
+  },
+  {
+    "file": "05.png",
+    "label": "78c55",
+    "split": "background"
+  },
+  {
+    "file": "06.png",
+    "label": "4a0f9",
+    "split": "background"
+  },
+  {
+    "file": "07.png",
+    "label": "d2fa1",
+    "split": "background"
+  },
+  {
+    "file": "08.png",
+    "label": "be2fe",
+    "split": "background"
+  },
+  {
+    "file": "09.png",
+    "label": "e44aa",
+    "split": "background"
+  },
+  {
+    "file": "10.png",
+    "label": "4952c",
+    "split": "background"
+  },
+  {
+    "file": "11.png",
+    "label": "40f3b",
+    "split": "background"
+  },
+  {
+    "file": "12.png",
+    "label": "a9ad2",
+    "split": "development"
+  },
+  {
+    "file": "13.png",
+    "label": "2d203",
+    "split": "development"
+  },
+  {
+    "file": "14.png",
+    "label": "58467",
+    "split": "development"
+  },
+  {
+    "file": "15.png",
+    "label": "36c20",
+    "split": "development"
+  },
+  {
+    "file": "16.png",
+    "label": "2415f",
+    "split": "development"
+  },
+  {
+    "file": "17.png",
+    "label": "da0e3",
+    "split": "development"
+  },
+  {
+    "file": "18.png",
+    "label": "60f2a",
+    "split": "development"
+  },
+  {
+    "file": "19.png",
+    "label": "02edd",
+    "split": "development",
+    "label_note": "Nhãn phát triển được sửa sau đối chiếu font bitmap; không tính vào bộ đánh giá cuối."
+  },
+  {
+    "file": "20.png",
+    "label": "86ba1",
+    "split": "development",
+    "label_note": "Nhãn phát triển được sửa sau đối chiếu font bitmap; không tính vào bộ đánh giá cuối."
+  },
+  {
+    "file": "21.png",
+    "label": "9e2ad",
+    "split": "development"
+  },
+  {
+    "file": "22.png",
+    "label": "b9dcf",
+    "split": "development"
+  },
+  {
+    "file": "23.png",
+    "label": "1f982",
+    "split": "development"
+  },
+  {
+    "file": "24.png",
+    "label": "252c9",
+    "split": "evaluation"
+  },
+  {
+    "file": "25.png",
+    "label": "cfdc0",
+    "split": "evaluation"
+  },
+  {
+    "file": "26.png",
+    "label": "d35be",
+    "split": "evaluation"
+  },
+  {
+    "file": "27.png",
+    "label": "c2edb",
+    "split": "evaluation"
+  },
+  {
+    "file": "28.png",
+    "label": "22647",
+    "split": "evaluation"
+  },
+  {
+    "file": "29.png",
+    "label": "1e03a",
+    "split": "evaluation"
+  }
+]

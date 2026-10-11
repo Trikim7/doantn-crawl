@@ -1,0 +1,72 @@
+name: IUH activity bot
+
+on:
+  workflow_dispatch:
+    inputs:
+      send_notifications:
+        description: 'Gửi Telegram nếu có hoạt động mới (bỏ chọn để chỉ thử đăng nhập)'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '17 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iuh-activity-bot
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    # Lịch tự động chỉ bật sau khi đặt biến repository IUH_SCHEDULE_ENABLED=true.
+    if: github.event_name == 'workflow_dispatch' || vars.IUH_SCHEDULE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TZ: Asia/Ho_Chi_Minh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          if ! command -v tesseract >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y tesseract-ocr
+          fi
+
+      - name: Restore notification history
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python github_state.py restore runtime/iuh_event_state.json
+
+      - name: Check IUH
+        id: poll
+        env:
+          IUH_MSSV: ${{ secrets.IUH_MSSV }}
+          IUH_PASSWORD: ${{ secrets.IUH_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEND_NOTIFICATIONS: ${{ github.event_name == 'schedule' || inputs.send_notifications }}
+        run: |
+          if [ "$SEND_NOTIFICATIONS" = 'true' ]; then
+            python -u iuh_telegram_bot.py --once --config /dev/null --state-file runtime/iuh_event_state.json
+          else
+            python -u iuh_telegram_bot.py --login-only --config /dev/null --state-file runtime/iuh_event_state.json
+          fi
+
+      - name: Save notification history, including partial success
+        if: always() && steps.poll.outcome != 'skipped' && steps.poll.outcome != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python github_state.py save runtime/iuh_event_state.json

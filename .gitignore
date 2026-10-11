@@ -1,0 +1,13 @@
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.env
+*.env.*
+!iuh_bot.env.example
+.env
+runtime/
+work/
+iuh_event_state.json
+*.tmp
+captcha_benchmark_results.json
