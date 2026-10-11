@@ -96,13 +96,13 @@ Chỉ chạy một tiến trình bot cho cùng cấu hình và lịch sử. Ch�
 
 ## GitHub Actions
 
-Repository thử nghiệm: `Trikim7/doantn-crawl` (private). Workflow `.github/workflows/iuh-bot.yml` chạy trên Ubuntu với Python 3.12. Mỗi lần chạy tạo phiên IUH mới, kiểm tra một lần rồi kết thúc; không dùng vòng lặp treo 24/7 trên runner.
+Repository triển khai: `Trikim7/doantn-crawl` (public). Workflow `.github/workflows/iuh-bot.yml` chạy trên Ubuntu với Python 3.12. Mỗi lần chạy tạo phiên IUH mới, kiểm tra một lần rồi kết thúc; không dùng vòng lặp treo 24/7 trên runner.
 
 Trong Settings → Secrets and variables → Actions → Secrets, đặt bốn repository Secrets: `IUH_MSSV`, `IUH_PASSWORD`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Nhập riêng từng giá trị, không upload tệp `.env`.
 
 Trong Actions → IUH activity bot → Run workflow, bỏ chọn `send_notifications` để chỉ kiểm tra CAPTCHA, đăng nhập và đọc danh sách. Chỉ bật tùy chọn này khi muốn gửi hoạt động đang mở chưa có trong lịch sử. Không có tin nhắn thử tự động; nếu không có hoạt động đang mở thì không gửi Telegram.
 
-Sau khi kiểm tra thành công, thêm repository Variable `IUH_SCHEDULE_ENABLED=true` để bật lịch tự động mỗi 5 phút (`*/5 * * * *`). Chưa đặt biến này thì các lượt theo lịch sẽ bỏ qua job. Với repo private, job GitHub-hosted làm tròn phút lên; nếu mỗi lượt dưới một phút, lịch 5 phút có thể dùng khoảng 8.640 phút trong 30 ngày. Kiểm tra quota và billing trước khi bật. GitHub có thể trì hoãn lịch chạy; đây không phải dịch vụ thời gian thực. Xem [billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) và [schedule troubleshooting](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows).
+Sau khi kiểm tra thành công, thêm repository Variable `IUH_SCHEDULE_ENABLED=true` để bật lịch tự động mỗi 5 phút (`*/5 * * * *`). Chưa đặt biến này thì các lượt theo lịch sẽ bỏ qua job. Runner chuẩn GitHub-hosted miễn phí cho repo public. Nếu chuyển lại private, mỗi job làm tròn phút lên; lịch 5 phút có thể dùng khoảng 8.640 phút trong 30 ngày khi mỗi lượt dưới một phút, cần kiểm tra quota và billing. GitHub có thể trì hoãn lịch chạy; đây không phải dịch vụ thời gian thực. Xem [billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) và [schedule troubleshooting](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows).
 
 Lịch sử được đọc và cập nhật qua `github_state.py` trên nhánh `bot-state`, tệp `iuh_event_state.json`; không dùng cache tạm làm nguồn lịch sử. Workflow dùng `GITHUB_TOKEN` tạm với `contents: write` để tạo/cập nhật nhánh này. Nhánh chỉ lưu mã hoạt động đã thông báo, không lưu mật khẩu, token hoặc cookie. Job không chạy chồng nhau. Bước lưu lịch sử vẫn chạy sau lỗi ở bước bot để giữ các thông báo đã gửi thành công trước lỗi. Nếu tiến trình bị hủy đột ngột hoặc GitHub không ghi được lịch sử sau khi gửi, lần sau có thể báo lại.
 
