@@ -123,9 +123,9 @@ Sau khi chạy thử thành công, vào **Settings → Secrets and variables →
 IUH_SCHEDULE_ENABLED=true
 ```
 
-Lịch mặc định chạy mỗi giờ tại phút 17. Các lượt theo lịch có gửi Telegram khi phát hiện hoạt động phù hợp. Nếu chưa tạo biến này, job theo lịch sẽ được bỏ qua. Đổi giá trị thành `false` hoặc xóa biến để dừng lịch.
+Lịch workflow được đặt mỗi 5 phút. Các lượt theo lịch có gửi Telegram khi phát hiện hoạt động phù hợp. Nếu chưa tạo biến này, job theo lịch sẽ được bỏ qua. Đổi giá trị thành `false` hoặc xóa biến để dừng lịch.
 
-Thời gian chạy phụ thuộc GitHub và có thể bị trễ; đây không phải cập nhật tức thời. Repository private chịu hạn mức phút Actions của tài khoản, bao gồm thời gian cài thư viện. Xem [thông tin thanh toán GitHub Actions](https://docs.github.com/en/billing/concepts/product-billing/github-actions) trước khi tăng tần suất.
+Thời gian chạy phụ thuộc GitHub và có thể bị trễ; đây không phải cập nhật tức thời. Repository private chịu hạn mức phút Actions của tài khoản, bao gồm thời gian cài thư viện. Mỗi job private làm tròn lên phút kế tiếp; lịch 5 phút có thể tiêu thụ khoảng 8.640 phút trong 30 ngày nếu mỗi job dưới một phút. Kiểm tra quota và billing trước khi bật lịch. Xem [thông tin thanh toán GitHub Actions](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 
 Workflow lưu lịch sử trên nhánh `bot-state`, trong tệp `iuh_event_state.json`. Token `GITHUB_TOKEN` chỉ được cấp quyền ghi nội dung repo trong job. Lịch sử chỉ chứa mã hoạt động đã báo, không chứa mật khẩu hoặc cookie. Nếu job bị hủy đột ngột hoặc không lưu được lịch sử sau khi gửi tin, lượt sau có thể gửi trùng.
 
