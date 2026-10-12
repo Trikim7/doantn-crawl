@@ -2,15 +2,15 @@
 
 Công cụ theo dõi [cổng thông tin hoạt động của Đoàn Trường Đại học Công nghiệp TP. Hồ Chí Minh (IUH)](https://doantn.iuh.edu.vn/), thuộc **Đoàn Thanh niên Cộng sản Hồ Chí Minh** (*Ho Chi Minh Communist Youth Union*, HCMYU). Bot thông báo qua Telegram khi phát hiện hoạt động còn mở đăng ký.
 
-Dự án viết bằng Python, hỗ trợ chạy trên Ubuntu, VPS Linux hoặc GitHub Actions. Đây là công cụ cộng đồng độc lập, không phải sản phẩm hay kênh thông tin chính thức của IUH hoặc HCMYU. Bot hiện theo dõi và gửi thông báo; phần tự đăng ký đang chờ xác minh thao tác đăng ký thực tế trên cổng IUH.
+Dự án viết bằng Python, hỗ trợ chạy trên Ubuntu, VPS Linux hoặc GitHub Actions. Đây là công cụ cộng đồng độc lập, không phải sản phẩm hay kênh thông tin chính thức của IUH hoặc HCMYU. Bot theo dõi và gửi thông báo; người dùng tự đăng ký hoạt động trên cổng IUH.
 
 ## Tính năng
 
 - Đăng nhập IUH và nhận dạng CAPTCHA bằng mẫu font bitmap, có Tesseract OCR dự phòng.
 - Đọc danh sách hoạt động và phát hiện trạng thái **Đăng ký** hoặc **Đăng ký tham gia**.
 - Mỗi người dùng Telegram có thể gửi `/start` trong chat riêng để nhận tin, `/stop` để tạm dừng.
-- Có luồng `/account` để xác thực MSSV và mật khẩu riêng; chỉ mở khi chủ bot đặt khóa mã hóa mạnh và bật `IUH_ACCOUNT_COLLECTION_ENABLED=true`. Bot xóa tin chứa thông tin đăng nhập sau khi nhận, rồi mã hóa dữ liệu khi lưu.
-- `/forget` xóa tài khoản đã lưu; `/autoreg on` hiện từ chối vì thao tác đăng ký IUH chưa được xác minh. Không có đăng ký tự động nào được gửi.
+- `/account` xác thực MSSV và mật khẩu riêng để mỗi người chỉ nhận hoạt động còn chỗ mà tài khoản IUH của họ nhìn thấy. Người chưa liên kết nhận danh sách chung. Chỉ mở khi chủ bot đặt khóa mã hóa mạnh và bật `IUH_ACCOUNT_COLLECTION_ENABLED=true`.
+- Bot xóa tin chứa MSSV và mật khẩu sau khi nhận, rồi mã hóa dữ liệu khi lưu. `/forget` xóa tài khoản đã lưu và đưa người dùng trở về danh sách chung.
 - Gửi Telegram một lần cho mỗi mã hoạt động và mỗi người nhận, dựa trên lịch sử đã lưu.
 - Làm mới trang tra cứu mỗi chu kỳ; tự đăng nhập lại khi phiên hết hạn.
 - Tự tăng thời gian chờ khi gặp lỗi trong chế độ chạy liên tục.
@@ -97,9 +97,9 @@ venv/bin/python -u iuh_telegram_bot.py \
   --state-file runtime/iuh_event_state.json
 ```
 
-Bot giữ cookie trong phiên hiện tại, lấy trang tra cứu mới với header chống cache và đăng nhập lại khi hết phiên hoặc máy chủ trả HTTP 401/403. Chế độ liên tục sẽ chờ lâu hơn sau lỗi, tối đa 60 phút với khoảng mặc định, rồi trở về chu kỳ bình thường sau khi thành công. `--once` và `--login-only` kết thúc với mã lỗi nếu không chạy được.
+Bot giữ cookie riêng cho từng tài khoản đã liên kết và một phiên chung cho người chưa liên kết, lấy trang tra cứu mới với header chống cache và đăng nhập lại khi hết phiên hoặc máy chủ trả HTTP 401/403. Tài khoản riêng đăng nhập lỗi sẽ chờ 15 phút trước khi thử lại; lỗi khác chờ 5 phút, không chặn người dùng khác. Chế độ liên tục chờ lâu hơn khi lần quét chung lỗi, rồi trở về chu kỳ bình thường sau khi thành công. `--once` và `--login-only` kết thúc với mã lỗi nếu lần kiểm tra chung không chạy được.
 
-Khi chạy liên tục, bot đồng thời nhận lệnh trong chat riêng: `/start` để được chào và bật thông báo, `/status` để xem trạng thái, `/stop` để tạm dừng hoặc `/help` để xem hướng dẫn. Bot không đăng ký chat nhóm. Danh sách người nhận, trạng thái bật/tắt, lịch sử gửi riêng của từng người và vị trí lệnh đã xử lý được mã hóa trước khi lưu để giữ nguyên sau khi GitHub Actions khởi động lại. Chế độ `--once` chỉ gửi cho những người đã đăng ký; để nhận `/start`, cần bật chế độ chạy liên tục. Tin nhắn bot không phải Secret Chat; việc xóa tin sau khi nhận không xóa bản sao có thể đã lưu ở nơi khác.
+Khi chạy liên tục, bot đồng thời nhận lệnh trong chat riêng: `/start` để bật thông báo chung, `/account` để nhập MSSV rồi mật khẩu IUH, `/status` để xem trạng thái, `/stop` để tạm dừng, `/forget` để xóa tài khoản hoặc `/help` để xem hướng dẫn. Sau khi `/account` xác thực thành công, thông báo được bật và chuyển sang danh sách riêng từ lần quét tiếp theo. Bot không đăng ký chat nhóm. Danh sách người nhận, trạng thái bật/tắt, lịch sử gửi riêng của từng người và vị trí lệnh đã xử lý được mã hóa trước khi lưu để giữ nguyên sau khi GitHub Actions khởi động lại. Chế độ `--once` chỉ gửi cho những người đã đăng ký; để nhận lệnh, cần bật chế độ chạy liên tục. Tin nhắn bot không phải Secret Chat; việc xóa tin sau khi nhận không xóa bản sao có thể đã lưu ở nơi khác.
 
 ## GitHub Actions
 
@@ -113,7 +113,7 @@ Trong repo, mở **Settings → Secrets and variables → Actions → Secrets** 
 - `IUH_PASSWORD`
 - `TELEGRAM_BOT_TOKEN`
 
-Thêm `SUBSCRIBER_STATE_KEY` là một chuỗi ngẫu nhiên dài ít nhất 32 ký tự, giữ cố định. Bot sẽ chuyển trạng thái cũ vốn mã hóa bằng token sang khóa riêng trong lần chạy liên tục đầu tiên. Xác nhận đã chuyển xong trước khi đổi token bot; nếu đổi token trước, trạng thái cũ có thể không giải mã được. Giữ `IUH_ACCOUNT_COLLECTION_ENABLED` tắt cho đến khi đã xác minh và triển khai phần tự đăng ký. Sau đó, đổi token đã từng lộ, đặt khóa riêng, kiểm tra bot hoạt động rồi mới bật biến này. Có thể giữ `TELEGRAM_CHAT_ID` cũ để chuyển lịch sử nhận tin của tài khoản chủ bot; người dùng mới không cần chat ID.
+Thêm `SUBSCRIBER_STATE_KEY` là một chuỗi ngẫu nhiên dài ít nhất 32 ký tự, giữ cố định. Bot sẽ chuyển trạng thái cũ vốn mã hóa bằng token sang khóa riêng trong lần chạy liên tục đầu tiên. Xác nhận đã chuyển xong trước khi đổi token bot; nếu đổi token trước, trạng thái cũ có thể không giải mã được. Sau khi khóa riêng và bot đã hoạt động, đặt repository Variable `IUH_ACCOUNT_COLLECTION_ENABLED=true` để mở `/account`. Token bot từng lộ cần được đổi trong BotFather và cập nhật lại GitHub Secret `TELEGRAM_BOT_TOKEN` sau khi chuyển trạng thái. Có thể giữ `TELEGRAM_CHAT_ID` cũ để chuyển lịch sử nhận tin của tài khoản chủ bot; người dùng mới không cần chat ID.
 
 Nhập từng giá trị vào GitHub Secrets; không tải tệp `iuh_bot.env` lên repo.
 
