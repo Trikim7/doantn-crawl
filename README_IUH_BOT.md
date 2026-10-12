@@ -114,7 +114,7 @@ Khi chuyển từ máy local, giữ các mã đã gửi trong lịch sử hiện
 
 Trong lần debug ngày 11/10/2026: GET trang đăng nhập IUH trả HTTP 200, các ô MSSV/mật khẩu/CAPTCHA khớp với mã, môi trường `venv` có đủ thư viện và có lệnh Tesseract. Mã biên dịch được và 11 bài kiểm thử chạy đạt, gồm trạng thái đăng ký, bảng có/không có `tbody`, cấu hình, phiên đăng nhập, trường nút `btLogin`, giới hạn thử CAPTCHA, lịch sử gửi và gửi thất bại. Các bài kiểm thử dùng dữ liệu giả lập, không gửi Telegram.
 
-Sau cải thiện nhận dạng CAPTCHA, sửa chuyển trang đăng nhập, thêm chế độ chạy lâu dài và lưu lịch sử Actions: **33 bài kiểm thử local chạy đạt**. Các bài thử kiểm tra cả làm mới dữ liệu, tái đăng nhập khi hết phiên/HTTP 401, giữ bot chạy khi lỗi, tăng thời gian chờ, đặt lại thời gian chờ sau khi hồi phục và đọc/ghi lịch sử GitHub bằng API giả lập. Dịch vụ sinh bởi `install_service.py --print` đã qua `systemd-analyze --user verify`. Workflow GitHub Actions đã qua `actionlint`; các kiểm tra local này chưa xác nhận runner GitHub thực tế truy cập IUH thành công.
+Sau cải thiện nhận dạng CAPTCHA, sửa chuyển trang đăng nhập, thêm chế độ chạy lâu dài và lưu lịch sử Actions: **33 bài kiểm thử local chạy đạt**. Các bài thử kiểm tra cả làm mới dữ liệu, tái đăng nhập khi hết phiên/HTTP 401, giữ bot chạy khi lỗi, tăng thời gian chờ, đặt lại thời gian chờ sau khi hồi phục và đọc/ghi lịch sử GitHub bằng API giả lập. Dịch vụ sinh bởi `install_service.py --print` đã qua `systemd-analyze --user verify`. Workflow đã qua `actionlint`; một lượt chạy thủ công trên runner GitHub đã giải CAPTCHA, đăng nhập IUH và lưu lịch sử thành công. Một lượt chạy theo lịch cũng đã hoàn tất thành công.
 
 Chạy lại kiểm thử bằng:
 
@@ -122,7 +122,7 @@ Chạy lại kiểm thử bằng:
 venv/bin/python -m unittest -v
 ```
 
-Đã xác minh thực tế bằng `venv/bin/python -u iuh_telegram_bot.py --login-only` ngày 11/10/2026: nhận dạng CAPTCHA và đăng nhập thành công ngay lần đầu, đọc được **1 hoạt động, 0 hoạt động có thể đăng ký**, thoát với mã 0. Trang IUH trả `meta refresh` tới trang tra cứu sau POST đăng nhập; `requests` không tự theo kiểu chuyển trang này. Bot đã được sửa để GET trang tra cứu trước khi kết luận đăng nhập thất bại. **Chưa thử gửi Telegram.** Số hoạt động trên là kết quả tại thời điểm kiểm tra, có thể thay đổi.
+Đã xác minh thực tế bằng `venv/bin/python -u iuh_telegram_bot.py --login-only` ngày 11/10/2026: nhận dạng CAPTCHA và đăng nhập thành công ngay lần đầu, đọc được **1 hoạt động, 0 hoạt động có thể đăng ký**, thoát với mã 0. Trang IUH trả `meta refresh` tới trang tra cứu sau POST đăng nhập; `requests` không tự theo kiểu chuyển trang này. Bot đã được sửa để GET trang tra cứu trước khi kết luận đăng nhập thất bại. **Lượt chạy thử thủ công trên GitHub không gửi Telegram**; các lượt theo lịch đã bật gửi khi có hoạt động phù hợp. Số hoạt động trên là kết quả tại thời điểm kiểm tra, có thể thay đổi.
 
 ## Cải thiện CAPTCHA
 

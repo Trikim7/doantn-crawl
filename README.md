@@ -117,13 +117,7 @@ Khi muốn bắt đầu gửi thông báo, có thể bật `send_notifications` 
 
 ### Bật lịch tự động
 
-Sau khi chạy thử thành công, vào **Settings → Secrets and variables → Actions → Variables**, thêm biến:
-
-```text
-IUH_SCHEDULE_ENABLED=true
-```
-
-Lịch workflow được đặt mỗi 5 phút. Các lượt theo lịch có gửi Telegram khi phát hiện hoạt động phù hợp. Nếu chưa tạo biến này, job theo lịch sẽ được bỏ qua. Đổi giá trị thành `false` hoặc xóa biến để dừng lịch.
+Repository Variable `IUH_SCHEDULE_ENABLED=true` hiện đã được bật. Workflow chạy theo lịch mỗi 5 phút và gửi Telegram khi phát hiện hoạt động phù hợp. Đổi biến thành `false` hoặc xóa biến trong **Settings → Secrets and variables → Actions → Variables** để tạm dừng lịch.
 
 Thời gian chạy phụ thuộc GitHub và có thể bị trễ; đây không phải cập nhật tức thời. Runner chuẩn GitHub-hosted miễn phí cho repo public. Nếu đổi repo về private, mỗi job làm tròn lên phút kế tiếp; lịch 5 phút có thể tiêu thụ khoảng 8.640 phút trong 30 ngày nếu mỗi job dưới một phút, nên cần kiểm tra quota và billing. Xem [thông tin thanh toán GitHub Actions](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 
@@ -192,7 +186,7 @@ venv/bin/python benchmark_captcha.py
 
 Ảnh và nhãn nằm trong `tests/fixtures/captcha/`; kết quả được ghi vào `captcha_benchmark_results.json`. Tập đánh giá hiện có sáu ảnh: phương pháp mới nhận dạng đúng 6/6, phương pháp cũ 0/6. Đây là bộ mẫu nhỏ nên không đảm bảo độ chính xác khi IUH thay đổi CAPTCHA.
 
-Trong lần phát triển, 33 kiểm thử local đã đạt và đăng nhập IUH thực tế bằng `--login-only` thành công. Các kiểm thử Actions dùng API giả lập; workflow đã qua kiểm tra tĩnh nhưng kết quả đó không thay thế cho việc chạy thử trên GitHub Actions. Lượt đăng nhập thực tế gần nhất đọc được một hoạt động, không có hoạt động mở đăng ký và không gửi Telegram.
+Trong lần phát triển, 33 kiểm thử local đã đạt và đăng nhập IUH thực tế trên máy phát triển thành công. Lượt GitHub Actions thủ công cũng đã chạy thành công: runner nhận dạng CAPTCHA, đăng nhập IUH và lưu lịch sử. Đã xác nhận một lượt chạy theo lịch hoàn tất thành công. Lượt kiểm tra thủ công gần nhất đọc được 0 hoạt động; lượt chạy này không gửi Telegram.
 
 ## Cấu trúc
 
