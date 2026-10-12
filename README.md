@@ -1,8 +1,8 @@
-# IUH Activity Bot
+# IUH HCMYU Activity Bot
 
-Bot theo dõi hoạt động trên [cổng Đoàn Thanh niên IUH](https://doantn.iuh.edu.vn/) và gửi thông báo Telegram khi có hoạt động còn mở đăng ký. Dự án viết bằng Python, có thể chạy trên máy Ubuntu, VPS Linux hoặc GitHub Actions.
+Công cụ theo dõi [cổng thông tin hoạt động của Đoàn Trường Đại học Công nghiệp TP. Hồ Chí Minh (IUH)](https://doantn.iuh.edu.vn/), thuộc **Đoàn Thanh niên Cộng sản Hồ Chí Minh** (*Ho Chi Minh Communist Youth Union*, HCMYU). Bot thông báo qua Telegram khi phát hiện hoạt động còn mở đăng ký.
 
-> Bot chỉ theo dõi và gửi thông báo. Việc đăng ký hoạt động vẫn do bạn thực hiện trên trang IUH.
+Dự án viết bằng Python, hỗ trợ chạy trên Ubuntu, VPS Linux hoặc GitHub Actions. Đây là công cụ cộng đồng độc lập, không phải sản phẩm hay kênh thông tin chính thức của IUH hoặc HCMYU. Bot chỉ theo dõi và gửi thông báo; việc đăng ký hoạt động do bạn thực hiện trên cổng IUH.
 
 ## Tính năng
 
@@ -18,8 +18,8 @@ Bot theo dõi hoạt động trên [cổng Đoàn Thanh niên IUH](https://doant
 Ví dụ dưới đây dành cho Ubuntu/Debian:
 
 ```bash
-git clone https://github.com/Trikim7/doantn-crawl.git
-cd doantn-crawl
+git clone https://github.com/Trikim7/iuh-hcmyu-activity-bot.git
+cd iuh-hcmyu-activity-bot
 
 sudo apt update
 sudo apt install python3-venv tesseract-ocr
@@ -111,7 +111,7 @@ Nhập từng giá trị vào GitHub Secrets; không tải tệp `iuh_bot.env` l
 
 ### Chạy thử thủ công
 
-Vào **Actions → IUH activity bot → Run workflow**, chọn nhánh `main` và để `send_notifications` tắt. Lượt này chỉ kiểm tra đăng nhập và đọc danh sách, không gửi Telegram. Xem log ở bước **Check IUH**.
+Vào **Actions → IUH HCMYU Activity Bot → Run workflow**, chọn nhánh `main` và để `send_notifications` tắt. Lượt này chỉ kiểm tra đăng nhập và đọc danh sách, không gửi Telegram. Xem log ở bước **Check IUH**.
 
 Khi muốn bắt đầu gửi thông báo, có thể bật `send_notifications` trong lần chạy thủ công. Hoạt động đang mở nào chưa có trong lịch sử sẽ được gửi.
 

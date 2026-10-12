@@ -1,4 +1,4 @@
-name: IUH activity bot
+name: IUH HCMYU Activity Bot
 
 on:
   workflow_dispatch:
