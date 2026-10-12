@@ -7,6 +7,10 @@ on:
         description: 'Gửi Telegram nếu có hoạt động mới (bỏ chọn để chỉ thử đăng nhập)'
         type: boolean
         default: false
+      run_continuous:
+        description: 'Giữ bot chạy liên tục để nhận lệnh Telegram (tối đa 6 giờ)'
+        type: boolean
+        default: false
   schedule:
     - cron: '*/5 * * * *'
 
@@ -59,7 +63,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SEND_NOTIFICATIONS: ${{ github.event_name == 'schedule' || inputs.send_notifications }}
-          RUN_CONTINUOUS: ${{ github.event_name == 'schedule' }}
+          RUN_CONTINUOUS: ${{ github.event_name == 'schedule' || inputs.run_continuous }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           if [ "$RUN_CONTINUOUS" = 'true' ]; then

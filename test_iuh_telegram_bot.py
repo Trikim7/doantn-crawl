@@ -162,6 +162,26 @@ class BotTests(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text()), {"sent": ["123"]})
             self.assertFalse(path.with_name(path.name + ".tmp").exists())
 
+    def test_telegram_start_and_stop_toggle_configured_chat(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(bot, "telegram_request") as api:
+            path = Path(folder) / "state.json"
+            listener = bot.TelegramCommandListener("token", "12345", path)
+            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345}, "text": "/start"}})
+            self.assertTrue(json.loads(path.read_text())["notifications_enabled"])
+            self.assertIn("Xin chào", api.call_args.kwargs["data"]["text"])
+            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345}, "text": "/stop"}})
+            self.assertFalse(json.loads(path.read_text())["notifications_enabled"])
+            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345}, "text": "/status"}})
+            self.assertIn("tạm dừng", api.call_args.kwargs["data"]["text"])
+
+    def test_other_chat_cannot_subscribe_or_write_its_id(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(bot, "telegram_request") as api:
+            path = Path(folder) / "state.json"
+            listener = bot.TelegramCommandListener("token", "12345", path)
+            listener.handle_update(Mock(), {"message": {"chat": {"id": 67890}, "text": "/start"}})
+            self.assertFalse(path.exists())
+            self.assertIn("chủ bot cấu hình", api.call_args.kwargs["data"]["text"])
+
     def test_failed_send_does_not_mark_event_sent(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(bot, "get_events", return_value=[event()]), patch.object(bot, "send_telegram", side_effect=RuntimeError("failed")):
             path = Path(folder) / "state.json"

@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import unicodedata
 from collections import Counter
@@ -26,6 +27,8 @@ EVENT_URL = urljoin(BASE, "doanvien.html@211@Tra-cuu")
 HERE = Path(__file__).resolve().parent
 RUNTIME_DIR = HERE.parent / "work"
 FRESH_HEADERS = {"Cache-Control": "no-cache, no-store", "Pragma": "no-cache"}
+STATE_LOCK = threading.RLock()
+TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 
 
 def default_config_path():
@@ -300,13 +303,139 @@ def send_telegram(session, token, chat_id, event):
         raise RuntimeError("Telegram không xác nhận đã gửi tin nhắn.")
 
 
-def check_once(session, state_file, mssv, password, token=None, chat_id=None):
-    events = get_events(session, mssv, password)
-    open_events = [e for e in events if is_open(e)]
-    state = json.loads(state_file.read_text(encoding="utf-8")) if state_file.exists() else {}
+def read_state(state_file):
+    if not state_file.exists():
+        return {}
+    state = json.loads(state_file.read_text(encoding="utf-8"))
     if (not isinstance(state, dict) or not isinstance(state.get("sent", []), list)
             or any(not isinstance(key, str) for key in state.get("sent", []))):
         raise RuntimeError("Tệp lịch sử không hợp lệ: 'sent' phải là danh sách mã dạng chuỗi.")
+    return state
+
+
+def write_state(state_file, state):
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    pending = state_file.with_name(state_file.name + ".tmp")
+    pending.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    pending.replace(state_file)
+
+
+def telegram_request(session, token, method, **kwargs):
+    try:
+        response = session.post(TELEGRAM_API.format(token=token, method=method), timeout=35, **kwargs)
+    except requests.RequestException as exc:
+        raise RuntimeError("Không kết nối được Telegram.") from exc
+    if not response.ok:
+        raise RuntimeError(f"Telegram trả về HTTP {response.status_code} khi gọi {method}.")
+    data = response.json()
+    if not data.get("ok"):
+        raise RuntimeError(f"Telegram không xác nhận thao tác {method}.")
+    return data.get("result")
+
+
+def set_notifications_enabled(state_file, enabled):
+    with STATE_LOCK:
+        state = read_state(state_file)
+        state["notifications_enabled"] = enabled
+        write_state(state_file, state)
+
+
+def command_text(command, enabled=True):
+    if command == "start":
+        return ("Xin chào! 👋\n\n"
+                "Mình là bot theo dõi hoạt động của Đoàn IUH. Mình sẽ kiểm tra cổng hoạt động "
+                "và gửi tin khi có hoạt động còn mở đăng ký.\n\n"
+                + ("✅ Bạn đã bật nhận thông báo." if enabled else "🔕 Thông báo đang tắt.")
+                + "\nDùng /help để xem hướng dẫn.")
+    if command == "help":
+        return ("🤖 Bot thông báo hoạt động Đoàn IUH\n\n"
+                "/start — bắt đầu hoặc bật lại thông báo\n"
+                "/status — xem trạng thái nhận tin\n"
+                "/stop — tạm dừng thông báo\n"
+                "/help — xem hướng dẫn\n\n"
+                "Bot chỉ gửi thông báo hoạt động; bạn tự mở cổng IUH để xem chi tiết và đăng ký.")
+    if command == "status":
+        return "✅ Bạn đang nhận thông báo." if enabled else "🔕 Bạn đã tạm dừng thông báo. Gửi /start để bật lại."
+    if command == "stop":
+        return "Đã tạm dừng thông báo. Gửi /start bất cứ lúc nào để bật lại."
+    return "Mình chưa hiểu lệnh này. Gửi /help để xem các lệnh có sẵn."
+
+
+class TelegramCommandListener:
+    """Nhận lệnh Telegram cho chat duy nhất đã được cấu hình trong TELEGRAM_CHAT_ID."""
+
+    def __init__(self, token, chat_id, state_file):
+        self.token = token
+        self.chat_id = str(chat_id)
+        self.state_file = state_file
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self.run, name="telegram-commands", daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+        self.thread.join(timeout=2)
+
+    def send_text(self, session, chat_id, text):
+        telegram_request(session, self.token, "sendMessage",
+                         data={"chat_id": chat_id, "text": text})
+
+    def handle_update(self, session, update):
+        message = update.get("message") or {}
+        chat_id = str((message.get("chat") or {}).get("id", ""))
+        text = message.get("text", "").strip()
+        if not text.startswith("/"):
+            return
+        command = text.split()[0][1:].split("@", 1)[0].lower()
+        if chat_id != self.chat_id:
+            # Không lưu hoặc đăng ký chat ID ngoài cấu hình để tránh đưa dữ liệu cá nhân
+            # vào nhánh bot-state công khai.
+            if command == "start":
+                self.send_text(session, chat_id,
+                               "Bot này hiện chỉ gửi thông báo đến cuộc trò chuyện đã được chủ bot cấu hình.")
+            return
+        enabled = bool(read_state(self.state_file).get("notifications_enabled", True))
+        if command == "start":
+            set_notifications_enabled(self.state_file, True)
+            enabled = True
+        elif command == "stop":
+            set_notifications_enabled(self.state_file, False)
+            enabled = False
+        elif command not in {"help", "status"}:
+            command = "unknown"
+        self.send_text(session, chat_id, command_text(command, enabled))
+
+    def run(self):
+        offset = None
+        with requests.Session() as session:
+            while not self.stop_event.is_set():
+                try:
+                    params = {"timeout": 20, "allowed_updates": json.dumps(["message"])}
+                    if offset is not None:
+                        params["offset"] = offset
+                    updates = telegram_request(session, self.token, "getUpdates", data=params) or []
+                    for update in updates:
+                        try:
+                            self.handle_update(session, update)
+                        except (RuntimeError, ValueError, OSError) as exc:
+                            print(f"Lỗi xử lý lệnh Telegram: {exc}", file=sys.stderr)
+                        if isinstance(update.get("update_id"), int):
+                            offset = update["update_id"] + 1
+                except (RuntimeError, ValueError) as exc:
+                    print(f"Lỗi nhận lệnh Telegram: {exc}", file=sys.stderr)
+                    self.stop_event.wait(5)
+
+
+def check_once(session, state_file, mssv, password, token=None, chat_id=None):
+    events = get_events(session, mssv, password)
+    open_events = [e for e in events if is_open(e)]
+    with STATE_LOCK:
+        state = read_state(state_file)
+    if token and chat_id and not state.get("notifications_enabled", True):
+        print(f"Tìm thấy {len(events)} hoạt động, {len(open_events)} hoạt động có thể đăng ký; thông báo đang tạm dừng.")
+        return
     sent = set(state.get("sent", []))
     if token and chat_id:
         state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -317,9 +446,10 @@ def check_once(session, state_file, mssv, password, token=None, chat_id=None):
         if token and chat_id:
             send_telegram(session, token, chat_id, event)
             sent.add(key)
-            pending = state_file.with_name(state_file.name + ".tmp")
-            pending.write_text(json.dumps({**state, "sent": sorted(sent)}, ensure_ascii=False, indent=2), encoding="utf-8")
-            pending.replace(state_file)
+            with STATE_LOCK:
+                latest = read_state(state_file)
+                latest["sent"] = sorted(sent)
+                write_state(state_file, latest)
             print("Đã báo Telegram:", event["title"])
         else:
             print("Có thể đăng ký:", event["title"])
@@ -333,6 +463,12 @@ def retry_delay(interval, failures, authentication=False):
 
 def monitor(session, state_file, args):
     failures = 0
+    listener = None
+    if not args.once and not args.login_only:
+        listener = TelegramCommandListener(os.environ["TELEGRAM_BOT_TOKEN"],
+                                           os.environ["TELEGRAM_CHAT_ID"], state_file)
+        listener.start()
+        print("Đang nhận lệnh Telegram: /start, /status, /stop, /help.")
     while True:
         delay = args.interval
         print(time.strftime("[%Y-%m-%d %H:%M:%S] Kiểm tra danh sách hoạt động mới..."))
@@ -353,7 +489,12 @@ def monitor(session, state_file, args):
         if args.once or args.login_only:
             return 0
         print(f"Chờ {delay} giây trước lần kiểm tra tiếp theo.")
-        time.sleep(delay)
+        try:
+            time.sleep(delay)
+        except KeyboardInterrupt:
+            if listener:
+                listener.stop()
+            raise
 
 
 def main():

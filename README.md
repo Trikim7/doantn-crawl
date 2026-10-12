@@ -94,9 +94,11 @@ venv/bin/python -u iuh_telegram_bot.py \
 
 Bot giữ cookie trong phiên hiện tại, lấy trang tra cứu mới với header chống cache và đăng nhập lại khi hết phiên hoặc máy chủ trả HTTP 401/403. Chế độ liên tục sẽ chờ lâu hơn sau lỗi, tối đa 60 phút với khoảng mặc định, rồi trở về chu kỳ bình thường sau khi thành công. `--once` và `--login-only` kết thúc với mã lỗi nếu không chạy được.
 
+Khi chạy liên tục, bot đồng thời nhận lệnh Telegram. Gửi `/start` để được chào và bật thông báo, `/status` để xem trạng thái, `/stop` để tạm dừng hoặc `/help` để xem hướng dẫn. Bot hiện chỉ phục vụ chat có ID nằm trong `TELEGRAM_CHAT_ID`; lệnh từ chat khác không được đăng ký nhận tin. Trạng thái bật/tắt được lưu cùng lịch sử thông báo để giữ nguyên sau khi GitHub Actions khởi động lại.
+
 ## GitHub Actions
 
-Workflow [`iuh-bot.yml`](.github/workflows/iuh-bot.yml) giữ bot chạy liên tục trên runner và kiểm tra IUH mỗi 5 phút. Lịch cron cũng chạy mỗi 5 phút; concurrency giữ tối đa một lượt kế tiếp trong hàng đợi để tiếp tục sau khi job hiện tại kết thúc. Mỗi job GitHub-hosted tối đa 6 giờ, nên đây là cách nối các phiên liên tục trên Actions chứ không phải một tiến trình vô hạn.
+Workflow [`iuh-bot.yml`](.github/workflows/iuh-bot.yml) giữ bot chạy liên tục trên runner và kiểm tra IUH mỗi 5 phút. Lịch cron cũng chạy mỗi 5 phút; concurrency giữ tối đa một lượt kế tiếp trong hàng đợi để tiếp tục sau khi job hiện tại kết thúc. Mỗi job GitHub-hosted tối đa 6 giờ, nên đây là cách nối các phiên liên tục trên Actions chứ không phải một tiến trình vô hạn. Trong phiên chạy liên tục, bot đọc lệnh Telegram gần như ngay lập tức qua long polling.
 
 ### Thêm thông tin bí mật
 
@@ -111,7 +113,7 @@ Nhập từng giá trị vào GitHub Secrets; không tải tệp `iuh_bot.env` l
 
 ### Chạy thử thủ công
 
-Vào **Actions → IUH HCMYU Activity Bot → Run workflow**, chọn nhánh `main` và để `send_notifications` tắt. Lượt này chỉ kiểm tra đăng nhập và đọc danh sách, không gửi Telegram. Xem log ở bước **Check IUH**.
+Vào **Actions → IUH HCMYU Activity Bot → Run workflow**, chọn nhánh `main`. Để thử riêng việc đăng nhập, giữ `send_notifications` và `run_continuous` tắt; lượt này không gửi Telegram. Để kiểm tra các lệnh `/start`, `/status`, `/stop`, bật `run_continuous`; worker sẽ chạy tối đa 6 giờ, nhận lệnh Telegram và gửi thông báo. Xem log ở bước **Check IUH**.
 
 Khi muốn bắt đầu gửi thông báo, có thể bật `send_notifications` trong lần chạy thủ công. Hoạt động đang mở nào chưa có trong lịch sử sẽ được gửi.
 
