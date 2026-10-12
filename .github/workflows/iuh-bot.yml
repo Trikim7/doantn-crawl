@@ -62,6 +62,7 @@ jobs:
           IUH_PASSWORD: ${{ secrets.IUH_PASSWORD }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUBSCRIBER_STATE_KEY: ${{ secrets.SUBSCRIBER_STATE_KEY }}
           SEND_NOTIFICATIONS: ${{ github.event_name == 'schedule' || inputs.send_notifications }}
           RUN_CONTINUOUS: ${{ github.event_name == 'schedule' || inputs.run_continuous }}
           GITHUB_TOKEN: ${{ github.token }}

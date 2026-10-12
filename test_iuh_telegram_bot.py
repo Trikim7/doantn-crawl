@@ -156,31 +156,86 @@ class BotTests(unittest.TestCase):
             path = Path(folder) / "nested/state.json"
             bot.check_once(Mock(), path, "student", "password")
             self.assertFalse(path.exists())
-            bot.check_once(Mock(), path, "student", "password", "token", "chat")
-            bot.check_once(Mock(), path, "student", "password", "token", "chat")
+            bot.check_once(Mock(), path, "student", "password", "token", "12345")
+            bot.check_once(Mock(), path, "student", "password", "token", "12345")
             self.assertEqual(send.call_count, 1)
-            self.assertEqual(json.loads(path.read_text()), {"sent": ["123"]})
+            state = json.loads(path.read_text())
+            self.assertEqual(state["sent"], [])
+            self.assertNotIn("12345", path.read_text())
+            self.assertEqual(bot.read_subscribers(state, "token")["subscribers"]["12345"]["sent"], ["123"])
             self.assertFalse(path.with_name(path.name + ".tmp").exists())
 
-    def test_telegram_start_and_stop_toggle_configured_chat(self):
+    def test_telegram_start_and_stop_toggle_any_private_chat(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(bot, "telegram_request") as api:
             path = Path(folder) / "state.json"
-            listener = bot.TelegramCommandListener("token", "12345", path)
-            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345}, "text": "/start"}})
-            self.assertTrue(json.loads(path.read_text())["notifications_enabled"])
+            listener = bot.TelegramCommandListener("token", path)
+            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345, "type": "private"}, "text": "/start"}})
+            self.assertTrue(bot.read_subscribers(bot.read_state(path), "token")["subscribers"]["12345"]["enabled"])
             self.assertIn("Xin chào", api.call_args.kwargs["data"]["text"])
-            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345}, "text": "/stop"}})
-            self.assertFalse(json.loads(path.read_text())["notifications_enabled"])
-            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345}, "text": "/status"}})
+            listener.handle_update(Mock(), {"message": {"chat": {"id": 67890, "type": "private"}, "text": "/start"}})
+            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345, "type": "private"}, "text": "/stop"}})
+            data = bot.read_subscribers(bot.read_state(path), "token")
+            self.assertFalse(data["subscribers"]["12345"]["enabled"])
+            self.assertTrue(data["subscribers"]["67890"]["enabled"])
+            self.assertNotIn("12345", path.read_text())
+            self.assertNotIn("67890", path.read_text())
+            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345, "type": "private"}, "text": "/status"}})
             self.assertIn("tạm dừng", api.call_args.kwargs["data"]["text"])
 
-    def test_other_chat_cannot_subscribe_or_write_its_id(self):
+    def test_group_chat_cannot_subscribe(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(bot, "telegram_request") as api:
             path = Path(folder) / "state.json"
-            listener = bot.TelegramCommandListener("token", "12345", path)
-            listener.handle_update(Mock(), {"message": {"chat": {"id": 67890}, "text": "/start"}})
+            listener = bot.TelegramCommandListener("token", path)
+            listener.handle_update(Mock(), {"message": {"chat": {"id": -67890, "type": "supergroup"}, "text": "/start"}})
             self.assertFalse(path.exists())
-            self.assertIn("chủ bot cấu hình", api.call_args.kwargs["data"]["text"])
+            api.assert_not_called()
+
+    def test_each_subscriber_gets_an_event_once(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(bot, "get_events", return_value=[event()]), patch.object(bot, "send_telegram") as send, contextlib.redirect_stdout(io.StringIO()):
+            path = Path(folder) / "state.json"
+            bot.write_subscribers(path, "token", {"subscribers": {
+                "12345": {"enabled": True, "sent": []},
+                "67890": {"enabled": True, "sent": []},
+            }, "offset": None})
+            bot.check_once(Mock(), path, "student", "password", "token")
+            bot.check_once(Mock(), path, "student", "password", "token")
+            self.assertEqual([call.args[2] for call in send.call_args_list], ["12345", "67890"])
+            data = bot.read_subscribers(bot.read_state(path), "token")
+            self.assertEqual(data["subscribers"]["12345"]["sent"], ["123"])
+            self.assertEqual(data["subscribers"]["67890"]["sent"], ["123"])
+
+    def test_blocked_subscriber_does_not_prevent_other_delivery(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(bot, "get_events", return_value=[event()]), contextlib.redirect_stdout(io.StringIO()):
+            path = Path(folder) / "state.json"
+            bot.write_subscribers(path, "token", {"subscribers": {
+                "12345": {"enabled": True, "sent": []},
+                "67890": {"enabled": True, "sent": []},
+            }, "offset": None})
+            with patch.object(bot, "send_telegram", side_effect=[bot.TelegramDeliveryError(403), None]) as send:
+                bot.check_once(Mock(), path, "student", "password", "token")
+            self.assertEqual(send.call_count, 2)
+            data = bot.read_subscribers(bot.read_state(path), "token")
+            self.assertFalse(data["subscribers"]["12345"]["enabled"])
+            self.assertEqual(data["subscribers"]["67890"]["sent"], ["123"])
+
+    def test_legacy_owner_history_migrates(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(bot, "telegram_request"):
+            path = Path(folder) / "state.json"
+            path.write_text('{"sent": ["123"], "notifications_enabled": false}')
+            listener = bot.TelegramCommandListener("token", path, "12345")
+            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345, "type": "private"}, "text": "/start"}})
+            data = bot.read_subscribers(bot.read_state(path), "token")
+            self.assertEqual(data["subscribers"]["12345"], {"enabled": True, "sent": ["123"]})
+            self.assertNotIn("notifications_enabled", bot.read_state(path))
+
+    def test_encrypted_subscribers_need_same_key(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.json"
+            bot.write_subscribers(path, "token", {"subscribers": {"12345": {"enabled": True, "sent": []}}, "offset": 8})
+            self.assertNotIn("12345", path.read_text())
+            self.assertEqual(bot.read_subscribers(bot.read_state(path), "token")["offset"], 8)
+            with self.assertRaises(RuntimeError):
+                bot.read_subscribers(bot.read_state(path), "another-token")
 
     def test_failed_send_does_not_mark_event_sent(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(bot, "get_events", return_value=[event()]), patch.object(bot, "send_telegram", side_effect=RuntimeError("failed")):

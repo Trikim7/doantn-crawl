@@ -16,6 +16,8 @@ def validate_state(state):
     if (not isinstance(state, dict) or not isinstance(state.get("sent"), list)
             or any(not isinstance(value, str) for value in state["sent"])):
         raise RuntimeError("Lịch sử không hợp lệ: sent phải là danh sách mã chuỗi.")
+    if "subscribers_encrypted" in state and not isinstance(state["subscribers_encrypted"], str):
+        raise RuntimeError("Danh sách người nhận phải được mã hóa.")
     return state
 
 
