@@ -167,13 +167,13 @@ Khi chuyển lên VPS, cài lại các thư viện trên VPS, sao chép thư m�
 
 ## Lịch sử thông báo
 
-Bot lưu mã các hoạt động đã gửi trong JSON, ví dụ:
+Bot lưu trạng thái người nhận và mã các hoạt động đã gửi cho từng người dưới dạng mã hóa trong JSON, ví dụ cấu trúc (giá trị mã hóa đã rút ngắn):
 
 ```json
-{"sent": ["event_id_1", "event_id_2"]}
+{"sent": [], "subscribers_encrypted": "gAAAAA..."}
 ```
 
-Chạy local mặc định lưu ở `../work/iuh_event_state.json`. Dùng `--state-file` để đổi vị trí. GitHub Actions lưu lịch sử trên nhánh `bot-state`. Giữ lại tệp này khi chuyển máy; xóa lịch sử có thể khiến bot gửi lại các hoạt động đang mở.
+Trường `sent` giữ tương thích với lịch sử cũ. Chạy local mặc định lưu ở `../work/iuh_event_state.json`. Dùng `--state-file` để đổi vị trí. GitHub Actions lưu lịch sử trên nhánh `bot-state`. Giữ lại tệp này cùng khóa mã hóa khi chuyển máy; xóa lịch sử có thể khiến bot gửi lại các hoạt động đang mở.
 
 ## Kiểm thử và CAPTCHA
 
@@ -191,7 +191,7 @@ venv/bin/python benchmark_captcha.py
 
 Ảnh và nhãn nằm trong `tests/fixtures/captcha/`; kết quả được ghi vào `captcha_benchmark_results.json`. Tập đánh giá hiện có sáu ảnh: phương pháp mới nhận dạng đúng 6/6, phương pháp cũ 0/6. Đây là bộ mẫu nhỏ nên không đảm bảo độ chính xác khi IUH thay đổi CAPTCHA.
 
-Trong lần phát triển, 33 kiểm thử local đã đạt và đăng nhập IUH thực tế trên máy phát triển thành công. Lượt GitHub Actions thủ công cũng đã chạy thành công: runner nhận dạng CAPTCHA, đăng nhập IUH và lưu lịch sử. Đã xác nhận một lượt chạy theo lịch hoàn tất thành công. Lượt kiểm tra thủ công gần nhất đọc được 0 hoạt động; lượt chạy này không gửi Telegram.
+Phiên bản này đã đạt 39 kiểm thử local. Trước đó, phiên bản một người nhận đã đăng nhập IUH thực tế trên máy phát triển; lượt GitHub Actions thủ công cũng đã nhận dạng CAPTCHA, đăng nhập IUH và lưu lịch sử. Đã xác nhận một lượt chạy theo lịch hoàn tất thành công. Lượt kiểm tra thủ công gần nhất đọc được 0 hoạt động và không gửi Telegram. Chức năng nhiều người nhận cần được xác nhận thêm bằng một lượt Actions sau khi đưa lên `main`.
 
 ## Cấu trúc
 
