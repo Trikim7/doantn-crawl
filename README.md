@@ -96,7 +96,7 @@ Bot giữ cookie trong phiên hiện tại, lấy trang tra cứu mới với he
 
 ## GitHub Actions
 
-Workflow [`iuh-bot.yml`](.github/workflows/iuh-bot.yml) tạo một phiên IUH mới cho mỗi lượt, chạy một lần rồi kết thúc. Nó không chiếm runner để chạy vòng lặp liên tục.
+Workflow [`iuh-bot.yml`](.github/workflows/iuh-bot.yml) giữ bot chạy liên tục trên runner và kiểm tra IUH mỗi 5 phút. Lịch cron cũng chạy mỗi 5 phút; concurrency giữ tối đa một lượt kế tiếp trong hàng đợi để tiếp tục sau khi job hiện tại kết thúc. Mỗi job GitHub-hosted tối đa 6 giờ, nên đây là cách nối các phiên liên tục trên Actions chứ không phải một tiến trình vô hạn.
 
 ### Thêm thông tin bí mật
 
@@ -117,7 +117,7 @@ Khi muốn bắt đầu gửi thông báo, có thể bật `send_notifications` 
 
 ### Bật lịch tự động
 
-Repository Variable `IUH_SCHEDULE_ENABLED=true` hiện đã được bật. Workflow chạy theo lịch mỗi 5 phút và gửi Telegram khi phát hiện hoạt động phù hợp. Đổi biến thành `false` hoặc xóa biến trong **Settings → Secrets and variables → Actions → Variables** để tạm dừng lịch.
+Repository Variable `IUH_SCHEDULE_ENABLED=true` hiện đã được bật. Workflow chạy liên tục, kiểm tra mỗi 5 phút và gửi Telegram khi phát hiện hoạt động phù hợp. Đổi biến thành `false` hoặc xóa biến trong **Settings → Secrets and variables → Actions → Variables** để tạm dừng lịch.
 
 Thời gian chạy phụ thuộc GitHub và có thể bị trễ; đây không phải cập nhật tức thời. Runner chuẩn GitHub-hosted miễn phí cho repo public. Nếu đổi repo về private, mỗi job làm tròn lên phút kế tiếp; lịch 5 phút có thể tiêu thụ khoảng 8.640 phút trong 30 ngày nếu mỗi job dưới một phút, nên cần kiểm tra quota và billing. Xem [thông tin thanh toán GitHub Actions](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 

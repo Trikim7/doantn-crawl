@@ -22,7 +22,8 @@ jobs:
     # Lịch tự động chỉ bật sau khi đặt biến repository IUH_SCHEDULE_ENABLED=true.
     if: github.event_name == 'workflow_dispatch' || vars.IUH_SCHEDULE_ENABLED == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Một job GitHub-hosted tối đa 6 giờ; cron giữ một lượt kế tiếp trong hàng đợi.
+    timeout-minutes: 360
     permissions:
       contents: write
     env:
@@ -58,8 +59,21 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SEND_NOTIFICATIONS: ${{ github.event_name == 'schedule' || inputs.send_notifications }}
+          RUN_CONTINUOUS: ${{ github.event_name == 'schedule' }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if [ "$SEND_NOTIFICATIONS" = 'true' ]; then
+          if [ "$RUN_CONTINUOUS" = 'true' ]; then
+            # Giữ bot sống và đồng bộ lịch sử định kỳ để phiên tiếp theo không báo trùng.
+            (
+              while true; do
+                sleep 30
+                python github_state.py save runtime/iuh_event_state.json || echo "Đồng bộ lịch sử chưa thành công; sẽ thử lại."
+              done
+            ) &
+            state_sync_pid=$!
+            trap 'kill "$state_sync_pid" 2>/dev/null || true' EXIT
+            python -u iuh_telegram_bot.py --config /dev/null --state-file runtime/iuh_event_state.json --interval 300
+          elif [ "$SEND_NOTIFICATIONS" = 'true' ]; then
             python -u iuh_telegram_bot.py --once --config /dev/null --state-file runtime/iuh_event_state.json
           else
             python -u iuh_telegram_bot.py --login-only --config /dev/null --state-file runtime/iuh_event_state.json
