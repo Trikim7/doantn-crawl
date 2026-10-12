@@ -237,6 +237,89 @@ class BotTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 bot.read_subscribers(bot.read_state(path), "another-token")
 
+    def test_separate_key_migrates_token_encryption(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {}, clear=True):
+            path = Path(folder) / "state.json"
+            original = {"subscribers": {"12345": {"enabled": True, "sent": []}}, "offset": 9}
+            bot.write_subscribers(path, "old-token", original)
+            with patch.dict(os.environ, {"SUBSCRIBER_STATE_KEY": "k" * 48}):
+                self.assertEqual(bot.read_subscribers(bot.read_state(path), "old-token"), original)
+                bot.write_subscribers(path, "old-token", original)
+                self.assertEqual(bot.read_subscribers(bot.read_state(path), "new-token"), original)
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_credentials_require_separate_strong_key(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {}, clear=True):
+            path = Path(folder) / "state.json"
+            data = {"subscribers": {"12345": {"enabled": True, "sent": [],
+                                                "mssv": "12345678", "password": "secret"}}, "offset": None}
+            with self.assertRaises(RuntimeError):
+                bot.write_subscribers(path, "token", data)
+            self.assertFalse(path.exists())
+            with patch.dict(os.environ, {"SUBSCRIBER_STATE_KEY": "short"}):
+                with self.assertRaises(RuntimeError):
+                    bot.write_subscribers(path, "token", data)
+
+    def test_account_flow_deletes_inputs_and_does_not_treat_commands_as_passwords(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "SUBSCRIBER_STATE_KEY": "k" * 48, "IUH_ACCOUNT_COLLECTION_ENABLED": "true",
+        }, clear=True), patch.object(bot, "telegram_request", return_value=True) as api, patch.object(bot, "get_events", return_value=[]):
+            path = Path(folder) / "state.json"
+            listener = bot.TelegramCommandListener("token", path)
+            def message(value, number):
+                return {"message": {"chat": {"id": 12345, "type": "private"},
+                                    "message_id": number, "text": value}}
+            listener.handle_update(Mock(), message("/account", 1))
+            listener.handle_update(Mock(), message("12345678", 2))
+            listener.handle_update(Mock(), message("/status", 3))
+            account = bot.read_subscribers(bot.read_state(path), "token")["subscribers"]["12345"]
+            self.assertEqual(account["pending_account"], "password")
+            self.assertNotIn("password", account)
+            listener.handle_update(Mock(), message("test-password", 4))
+            account = bot.read_subscribers(bot.read_state(path), "token")["subscribers"]["12345"]
+            self.assertEqual(account["password"], "test-password")
+            self.assertFalse(account["auto_register"])
+            self.assertNotIn("test-password", path.read_text())
+            self.assertEqual([c.args[2] for c in api.call_args_list if c.args[2] == "deleteMessage"],
+                             ["deleteMessage", "deleteMessage"])
+            listener.handle_update(Mock(), message("/forget", 5))
+            account = bot.read_subscribers(bot.read_state(path), "token")["subscribers"]["12345"]
+            self.assertNotIn("password", account)
+            self.assertNotIn("mssv", account)
+
+    def test_password_is_not_saved_when_telegram_cannot_delete(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "SUBSCRIBER_STATE_KEY": "k" * 48, "IUH_ACCOUNT_COLLECTION_ENABLED": "true",
+        }, clear=True), patch.object(bot, "telegram_request") as api, patch.object(bot, "get_events") as get_events:
+            path = Path(folder) / "state.json"
+            listener = bot.TelegramCommandListener("token", path)
+            def message(value, number):
+                return {"message": {"chat": {"id": 12345, "type": "private"},
+                                    "message_id": number, "text": value}}
+            listener.handle_update(Mock(), message("/account", 1))
+            api.side_effect = [True, True, RuntimeError("delete failed"), True]
+            listener.handle_update(Mock(), message("12345678", 2))
+            listener.handle_update(Mock(), message("secret", 3))
+            account = bot.read_subscribers(bot.read_state(path), "token")["subscribers"]["12345"]
+            self.assertNotIn("password", account)
+            get_events.assert_not_called()
+
+    def test_autoreg_stays_off_without_verified_registration(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "SUBSCRIBER_STATE_KEY": "k" * 48, "IUH_ACCOUNT_COLLECTION_ENABLED": "true",
+        }, clear=True), patch.object(bot, "telegram_request") as api:
+            path = Path(folder) / "state.json"
+            bot.write_subscribers(path, "token", {"subscribers": {"12345": {
+                "enabled": True, "sent": [], "mssv": "12345678", "password": "secret",
+                "auto_register": False,
+            }}, "offset": None})
+            listener = bot.TelegramCommandListener("token", path)
+            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345, "type": "private"},
+                                                    "text": "/autoreg on"}})
+            account = bot.read_subscribers(bot.read_state(path), "token")["subscribers"]["12345"]
+            self.assertFalse(account["auto_register"])
+            self.assertIn("chưa được mở", api.call_args.kwargs["data"]["text"])
+
     def test_failed_send_does_not_mark_event_sent(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(bot, "get_events", return_value=[event()]), patch.object(bot, "send_telegram", side_effect=RuntimeError("failed")):
             path = Path(folder) / "state.json"
