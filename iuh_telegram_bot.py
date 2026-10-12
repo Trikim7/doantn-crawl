@@ -327,13 +327,14 @@ def read_state(state_file):
 def write_state(state_file, state):
     state_file.parent.mkdir(parents=True, exist_ok=True)
     pending = state_file.with_name(state_file.name + ".tmp")
-    pending.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with os.fdopen(os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as stream:
+        stream.write(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+    pending.chmod(0o600)
     pending.replace(state_file)
 
 
-def subscriber_cipher(token):
-    # Dùng khóa riêng nếu được cung cấp; mặc định lấy từ token đang nằm trong GitHub Secrets.
-    secret = os.environ.get("SUBSCRIBER_STATE_KEY") or token
+def subscriber_cipher(token, legacy=False):
+    secret = token if legacy else (os.environ.get("SUBSCRIBER_STATE_KEY") or token)
     key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode("utf-8")).digest())
     return Fernet(key)
 
@@ -343,8 +344,16 @@ def read_subscribers(state, token, legacy_chat_id=None):
     if encrypted:
         try:
             data = json.loads(subscriber_cipher(token).decrypt(encrypted.encode("ascii")))
-        except (InvalidToken, ValueError, UnicodeError) as exc:
-            raise RuntimeError("Không giải mã được danh sách đăng ký; kiểm tra token hoặc SUBSCRIBER_STATE_KEY.") from exc
+        except InvalidToken as exc:
+            if not os.environ.get("SUBSCRIBER_STATE_KEY"):
+                raise RuntimeError("Không giải mã được danh sách đăng ký; kiểm tra token hoặc SUBSCRIBER_STATE_KEY.") from exc
+            try:
+                # Chuyển trạng thái cũ từ khóa dựa trên token sang khóa riêng ở lần ghi tiếp theo.
+                data = json.loads(subscriber_cipher(token, legacy=True).decrypt(encrypted.encode("ascii")))
+            except (InvalidToken, ValueError, UnicodeError) as legacy_exc:
+                raise RuntimeError("Không giải mã được danh sách đăng ký; kiểm tra token hoặc SUBSCRIBER_STATE_KEY.") from legacy_exc
+        except (ValueError, UnicodeError) as exc:
+            raise RuntimeError("Danh sách đăng ký đã mã hóa không hợp lệ.") from exc
     else:
         data = {"subscribers": {}, "offset": None}
         if legacy_chat_id:
@@ -361,10 +370,20 @@ def read_subscribers(state, token, legacy_chat_id=None):
                 or not isinstance(item.get("sent"), list)
                 or any(not isinstance(key, str) for key in item["sent"])):
             raise RuntimeError("Dữ liệu người đăng ký không hợp lệ.")
+        if ("mssv" in item and not isinstance(item["mssv"], str)
+                or "password" in item and not isinstance(item["password"], str)
+                or "auto_register" in item and not isinstance(item["auto_register"], bool)
+                or "pending_account" in item and item["pending_account"] not in {"mssv", "password"}):
+            raise RuntimeError("Dữ liệu tài khoản người đăng ký không hợp lệ.")
     return data
 
 
 def write_subscribers(state_file, token, data):
+    if len(os.environ.get("SUBSCRIBER_STATE_KEY", "")) < 32 and any(
+        item.get("mssv") or item.get("password") or item.get("pending_mssv")
+        for item in data["subscribers"].values()
+    ):
+        raise RuntimeError("Không lưu tài khoản IUH khi thiếu SUBSCRIBER_STATE_KEY.")
     state = read_state(state_file)
     state.setdefault("sent", [])  # tương thích với lịch sử trên nhánh bot-state hiện tại
     state["subscribers_encrypted"] = subscriber_cipher(token).encrypt(
@@ -390,8 +409,8 @@ def telegram_request(session, token, method, **kwargs):
 def command_text(command, enabled=True):
     if command == "start":
         return ("Xin chào! 👋\n\n"
-                "Mình theo dõi hoạt động Đoàn - Hội IUH. Mình sẽ kiểm tra cổng hoạt động "
-                "và gửi tin khi có hoạt động còn mở đăng ký.\n\n"
+                "Mình theo dõi hoạt động Đoàn - Hội IUH và báo khi có hoạt động còn mở đăng ký. "
+                "Dùng /account để nhận danh sách theo tài khoản IUH của bạn.\n\n"
                 + ("✅ Bạn đã bật nhận thông báo." if enabled else "🔕 Thông báo đang tắt.")
                 + "\nDùng /help để xem hướng dẫn. Đây là bot cộng đồng, không phải kênh chính thức của IUH.")
     if command == "help":
@@ -399,13 +418,20 @@ def command_text(command, enabled=True):
                 "/start — bắt đầu hoặc bật lại thông báo\n"
                 "/status — xem trạng thái nhận tin\n"
                 "/stop — tạm dừng thông báo\n"
+                "/account — nhận thông báo theo tài khoản IUH riêng\n"
+                "/forget — xóa tài khoản IUH đã lưu\n"
                 "/help — xem hướng dẫn\n\n"
-                "Bạn tự mở cổng IUH để xem chi tiết và đăng ký. Đây là bot cộng đồng độc lập.")
+                "Bot chỉ gửi thông báo; bạn tự đăng ký trên cổng IUH. Đây là bot cộng đồng độc lập.")
     if command == "status":
         return "✅ Bạn đang nhận thông báo." if enabled else "🔕 Bạn đã tạm dừng thông báo. Gửi /start để bật lại."
     if command == "stop":
         return "Đã tạm dừng thông báo. Gửi /start bất cứ lúc nào để bật lại."
     return "Mình chưa hiểu lệnh này. Gửi /help để xem các lệnh có sẵn."
+
+
+def account_ready():
+    return (len(os.environ.get("SUBSCRIBER_STATE_KEY", "")) >= 32
+            and os.environ.get("IUH_ACCOUNT_COLLECTION_ENABLED") == "true")
 
 
 class TelegramCommandListener:
@@ -429,16 +455,87 @@ class TelegramCommandListener:
         telegram_request(session, self.token, "sendMessage",
                          data={"chat_id": chat_id, "text": text})
 
+    def delete_private_message(self, session, chat_id, message):
+        message_id = message.get("message_id")
+        if not isinstance(message_id, int):
+            return False
+        try:
+            telegram_request(session, self.token, "deleteMessage",
+                             data={"chat_id": chat_id, "message_id": message_id})
+        except RuntimeError:
+            return False
+        return True
+
+    def handle_account_input(self, session, chat_id, message, subscriber):
+        # Xóa nội dung nhạy cảm trước khi kiểm tra hay ghi vào tệp trạng thái.
+        if not self.delete_private_message(session, chat_id, message):
+            self.send_text(session, chat_id, "Không xóa được tin nhắn chứa tài khoản. Mình chưa lưu dữ liệu; hãy xóa tin đó thủ công.")
+            return
+        value = message.get("text", "")
+        step = subscriber.get("pending_account")
+        if step == "mssv":
+            if not re.fullmatch(r"[A-Za-z0-9]{5,20}", value):
+                self.send_text(session, chat_id, "MSSV chưa đúng định dạng. Hãy gửi lại MSSV trong chat riêng.")
+                return
+            with STATE_LOCK:
+                data = read_subscribers(read_state(self.state_file), self.token, self.legacy_chat_id)
+                current = data["subscribers"][chat_id]
+                current["pending_mssv"] = value
+                current["pending_account"] = "password"
+                write_subscribers(self.state_file, self.token, data)
+            self.send_text(session, chat_id, "Đã nhận MSSV. Hãy gửi riêng mật khẩu IUH trong tin nhắn tiếp theo; bot sẽ xóa tin ngay khi nhận. Tin nhắn bot không phải Secret Chat.")
+            return
+        if step != "password" or not value or len(value) > 128:
+            self.send_text(session, chat_id, "Mật khẩu trống hoặc quá dài. Hãy gửi lại, hoặc /forget để hủy.")
+            return
+        mssv = subscriber.get("pending_mssv")
+        if not mssv:
+            self.send_text(session, chat_id, "Phiên nhập tài khoản đã hết. Hãy gửi /account để bắt đầu lại.")
+            return
+        try:
+            with requests.Session() as iuh_session:
+                get_events(iuh_session, mssv, value)
+        except (requests.RequestException, RuntimeError, ValueError):
+            self.send_text(session, chat_id, "IUH chưa xác nhận đăng nhập. Mình không lưu mật khẩu; hãy kiểm tra và gửi lại.")
+            return
+        with STATE_LOCK:
+            data = read_subscribers(read_state(self.state_file), self.token, self.legacy_chat_id)
+            current = data["subscribers"][chat_id]
+            current["mssv"] = mssv
+            current["password"] = value
+            current["enabled"] = True
+            current.pop("pending_account", None)
+            current.pop("pending_mssv", None)
+            write_subscribers(self.state_file, self.token, data)
+        self.send_text(session, chat_id, "Đăng nhập IUH thành công. Từ lần quét tiếp theo, bạn sẽ nhận thông báo theo những hoạt động tài khoản này thấy còn chỗ. Dùng /forget để xóa tài khoản.")
+
     def handle_update(self, session, update):
         message = update.get("message") or {}
         chat = message.get("chat") or {}
         chat_id = str(chat.get("id", ""))
         if chat.get("type") != "private" or not chat_id.isdecimal():
             return
-        text = message.get("text", "").strip()
-        if not text.startswith("/"):
+        text = message.get("text", "")
+        if not isinstance(text, str):
             return
-        command = text.split()[0][1:].split("@", 1)[0].lower()
+        command = text.split()[0][1:].split("@", 1)[0].lower() if text.startswith("/") else ""
+        if command == "account" and len(text.split()) > 1:
+            self.delete_private_message(session, chat_id, message)
+            self.send_text(session, chat_id, "Đừng gửi MSSV hoặc mật khẩu kèm lệnh. Hãy dùng /account rồi làm theo từng bước.")
+            return
+        with STATE_LOCK:
+            data = read_subscribers(read_state(self.state_file), self.token, self.legacy_chat_id)
+            subscriber = data["subscribers"].get(chat_id)
+            if subscriber and subscriber.get("pending_account") and not command:
+                pending = subscriber.copy()
+            else:
+                pending = None
+        if pending is not None:
+            self.handle_account_input(session, chat_id, message, pending)
+            return
+        if not command:
+            return
+        response = None
         with STATE_LOCK:
             data = read_subscribers(read_state(self.state_file), self.token, self.legacy_chat_id)
             subscriber = data["subscribers"].get(chat_id)
@@ -454,13 +551,38 @@ class TelegramCommandListener:
                     subscriber["enabled"] = False
                     write_subscribers(self.state_file, self.token, data)
                 enabled = False
+            elif command == "account":
+                if not account_ready():
+                    response = "Chức năng lưu tài khoản chưa được mở: chủ bot cần đặt khóa mã hóa riêng và bật tính năng này."
+                else:
+                    if subscriber is None:
+                        subscriber = {"enabled": False, "sent": []}
+                        data["subscribers"][chat_id] = subscriber
+                    subscriber["pending_account"] = "mssv"
+                    subscriber.pop("pending_mssv", None)
+                    write_subscribers(self.state_file, self.token, data)
+                    response = ("Hãy gửi MSSV trong tin nhắn tiếp theo. Bot sẽ xóa tin sau khi nhận. "
+                                "Sau đó bot sẽ hỏi mật khẩu để kiểm tra đăng nhập IUH. "
+                                "Tin nhắn với bot có thể được Telegram và người vận hành bot xử lý; không phải Secret Chat.")
+            elif command == "forget":
+                if subscriber is not None:
+                    for key in ("mssv", "password", "pending_mssv", "pending_account", "auto_register"):
+                        subscriber.pop(key, None)
+                    write_subscribers(self.state_file, self.token, data)
+                response = "Đã xóa tài khoản IUH. Nếu đang nhận thông báo, bạn sẽ trở về danh sách hoạt động chung."
+            elif command == "status":
+                account = ("***" + subscriber["mssv"][-4:]) if subscriber and subscriber.get("mssv") else "chưa liên kết"
+                response = f"{command_text('status', enabled)}\nTài khoản IUH: {account}. Nguồn hoạt động: {'riêng theo tài khoản' if account != 'chưa liên kết' else 'danh sách chung'}."
             elif command not in {"help", "status"}:
                 command = "unknown"
-        self.send_text(session, chat_id, command_text(command, enabled))
+        self.send_text(session, chat_id, response or command_text(command, enabled))
 
     def run(self):
         with STATE_LOCK:
-            offset = read_subscribers(read_state(self.state_file), self.token, self.legacy_chat_id)["offset"]
+            data = read_subscribers(read_state(self.state_file), self.token, self.legacy_chat_id)
+            offset = data["offset"]
+            if os.environ.get("SUBSCRIBER_STATE_KEY"):
+                write_subscribers(self.state_file, self.token, data)
         with requests.Session() as session:
             while not self.stop_event.is_set():
                 try:
@@ -484,37 +606,101 @@ class TelegramCommandListener:
                     self.stop_event.wait(5)
 
 
-def check_once(session, state_file, mssv, password, token=None, chat_id=None):
-    events = get_events(session, mssv, password)
-    open_events = [e for e in events if is_open(e)]
+def deliver_events(session, state_file, token, chat_id, events, expected_mssv=None,
+                   legacy_chat_id=None):
+    with STATE_LOCK:
+        data = read_subscribers(read_state(state_file), token, legacy_chat_id)
+        subscriber = data["subscribers"].get(chat_id)
+        if not subscriber or not subscriber["enabled"] or subscriber.get("mssv") != expected_mssv:
+            return
+        sent = set(subscriber["sent"])
+        for event in events:
+            key = str(event["id"])
+            if key in sent:
+                continue
+            try:
+                send_telegram(session, token, chat_id, event)
+            except TelegramDeliveryError as exc:
+                if exc.status_code not in (400, 403):
+                    raise
+                subscriber["enabled"] = False
+                write_subscribers(state_file, token, data)
+                print("Đã tạm dừng người nhận không còn truy cập được Telegram.")
+                break
+            sent.add(key)
+            subscriber["sent"] = sorted(sent)
+            write_subscribers(state_file, token, data)
+            print("Đã báo Telegram:", event["title"])
+
+
+def check_once(session, state_file, mssv, password, token=None, chat_id=None,
+               personal_sessions=None, personal_retry=None):
     if not token:
+        events = get_events(session, mssv, password)
+        open_events = [e for e in events if is_open(e)]
         for event in open_events:
             print("Có thể đăng ký:", event["title"])
-    else:
-        with STATE_LOCK:
-            data = read_subscribers(read_state(state_file), token, chat_id)
-            for subscriber_id, subscriber in data["subscribers"].items():
-                if not subscriber["enabled"]:
-                    continue
-                sent = set(subscriber["sent"])
-                for event in open_events:
-                    key = str(event["id"])
-                    if key in sent:
-                        continue
-                    try:
-                        send_telegram(session, token, subscriber_id, event)
-                    except TelegramDeliveryError as exc:
-                        if exc.status_code not in (400, 403):
-                            raise
-                        subscriber["enabled"] = False
-                        write_subscribers(state_file, token, data)
-                        print("Đã tạm dừng người nhận không còn truy cập được Telegram.")
-                        break
-                    sent.add(key)
-                    subscriber["sent"] = sorted(sent)
-                    write_subscribers(state_file, token, data)
-                    print("Đã báo Telegram:", event["title"])
-    print(f"Tìm thấy {len(events)} hoạt động, {len(open_events)} hoạt động có thể đăng ký.")
+        print(f"Tìm thấy {len(events)} hoạt động, {len(open_events)} hoạt động có thể đăng ký.")
+        return
+
+    owned_sessions = personal_sessions is None
+    personal_sessions = {} if personal_sessions is None else personal_sessions
+    personal_retry = {} if personal_retry is None else personal_retry
+    with STATE_LOCK:
+        subscribers = read_subscribers(read_state(state_file), token, chat_id)["subscribers"]
+        targets = {key: item.copy() for key, item in subscribers.items() if item["enabled"]}
+
+    try:
+        active_personal = {key for key, item in targets.items() if item.get("mssv") and item.get("password")}
+        for key in list(personal_sessions):
+            if key not in active_personal:
+                personal_sessions.pop(key)[1].close()
+                personal_retry.pop(key, None)
+
+        for subscriber_id, subscriber in targets.items():
+            if subscriber_id not in active_personal:
+                continue
+            mssv_personal = subscriber["mssv"]
+            password_personal = subscriber["password"]
+            credential_id = hashlib.sha256((mssv_personal + "\0" + password_personal).encode()).hexdigest()
+            retry = personal_retry.get(subscriber_id)
+            if retry and retry[0] == credential_id and time.monotonic() < retry[1]:
+                continue
+            cached = personal_sessions.get(subscriber_id)
+            if cached and cached[0] != credential_id:
+                cached[1].close()
+                cached = None
+            if cached is None:
+                personal_session = requests.Session()
+                personal_session.headers.update({"User-Agent": "Mozilla/5.0 IUH-event-notifier/1.0"})
+                personal_sessions[subscriber_id] = (credential_id, personal_session)
+            else:
+                personal_session = cached[1]
+            try:
+                events = get_events(personal_session, mssv_personal, password_personal)
+                personal_retry.pop(subscriber_id, None)
+                open_events = [event for event in events if is_open(event)]
+                deliver_events(session, state_file, token, subscriber_id, open_events, mssv_personal,
+                               chat_id)
+                print(f"Tài khoản riêng: {len(events)} hoạt động, {len(open_events)} còn mở.")
+            except (requests.RequestException, RuntimeError, ValueError) as exc:
+                personal_retry[subscriber_id] = (credential_id,
+                    time.monotonic() + (900 if isinstance(exc, AuthenticationError) else 300))
+                personal_sessions.pop(subscriber_id)[1].close()
+                print("Không đọc được hoạt động của một tài khoản riêng; sẽ thử lại sau.", file=sys.stderr)
+
+        shared_targets = [key for key in targets if key not in active_personal]
+        if shared_targets or not targets:
+            events = get_events(session, mssv, password)
+            open_events = [event for event in events if is_open(event)]
+            for subscriber_id in shared_targets:
+                deliver_events(session, state_file, token, subscriber_id, open_events,
+                               legacy_chat_id=chat_id)
+            print(f"Danh sách chung: {len(events)} hoạt động, {len(open_events)} còn mở.")
+    finally:
+        if owned_sessions:
+            for _, personal_session in personal_sessions.values():
+                personal_session.close()
 
 
 def retry_delay(interval, failures, authentication=False):
@@ -524,19 +710,22 @@ def retry_delay(interval, failures, authentication=False):
 
 def monitor(session, state_file, args):
     failures = 0
+    personal_sessions = {}
+    personal_retry = {}
     listener = None
     if not args.once and not args.login_only:
         listener = TelegramCommandListener(os.environ["TELEGRAM_BOT_TOKEN"],
                                            state_file, os.environ.get("TELEGRAM_CHAT_ID"))
         listener.start()
-        print("Đang nhận lệnh Telegram: /start, /status, /stop, /help.")
+        print("Đang nhận lệnh Telegram: /start, /status, /stop, /account, /forget, /help.")
     while True:
         delay = args.interval
         print(time.strftime("[%Y-%m-%d %H:%M:%S] Kiểm tra danh sách hoạt động mới..."))
         try:
             check_once(session, state_file, os.environ["IUH_MSSV"], os.environ["IUH_PASSWORD"],
                        None if args.login_only else os.environ["TELEGRAM_BOT_TOKEN"],
-                       None if args.login_only else os.environ.get("TELEGRAM_CHAT_ID"))
+                       None if args.login_only else os.environ.get("TELEGRAM_CHAT_ID"),
+                       personal_sessions, personal_retry)
             failures = 0
         except (requests.RequestException, RuntimeError, ValueError, OSError) as exc:
             print(f"Lỗi: {exc}", file=sys.stderr)
@@ -555,6 +744,8 @@ def monitor(session, state_file, args):
         except KeyboardInterrupt:
             if listener:
                 listener.stop()
+            for _, personal_session in personal_sessions.values():
+                personal_session.close()
             raise
 
 
@@ -562,13 +753,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="Kiểm tra một lần rồi thoát")
     parser.add_argument("--login-only", action="store_true", help="Chỉ kiểm tra đăng nhập và danh sách sự kiện")
-    parser.add_argument("--interval", type=int, default=600, help="Giây giữa hai lần kiểm tra (mặc định 600)")
+    parser.add_argument("--interval", type=int, default=120, help="Giây giữa hai lần kiểm tra (mặc định 120)")
     parser.add_argument("--config", type=Path, default=default_config_path())
     parser.add_argument("--state-file", type=Path, default=RUNTIME_DIR / "iuh_event_state.json",
                         help="Tệp lưu các hoạt động đã thông báo")
     args = parser.parse_args()
-    if args.interval < 300:
-        parser.error("Khoảng kiểm tra tối thiểu là 300 giây.")
+    if args.interval < 120:
+        parser.error("Khoảng kiểm tra tối thiểu là 120 giây.")
     try:
         load_config(args.config)
         require_config(["IUH_MSSV", "IUH_PASSWORD"])

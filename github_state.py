@@ -55,7 +55,9 @@ class GitHubState:
         if state is None:
             state = {"sent": []}
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+        path.chmod(0o600)
         print(f"Đã khôi phục lịch sử {len(state['sent'])} hoạt động.")
 
     def save(self, path):

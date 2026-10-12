@@ -63,6 +63,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUBSCRIBER_STATE_KEY: ${{ secrets.SUBSCRIBER_STATE_KEY }}
+          IUH_ACCOUNT_COLLECTION_ENABLED: ${{ vars.IUH_ACCOUNT_COLLECTION_ENABLED }}
           SEND_NOTIFICATIONS: ${{ github.event_name == 'schedule' || inputs.send_notifications }}
           RUN_CONTINUOUS: ${{ github.event_name == 'schedule' || inputs.run_continuous }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -77,7 +78,7 @@ jobs:
             ) &
             state_sync_pid=$!
             trap 'kill "$state_sync_pid" 2>/dev/null || true' EXIT
-            python -u iuh_telegram_bot.py --config /dev/null --state-file runtime/iuh_event_state.json --interval 300
+            python -u iuh_telegram_bot.py --config /dev/null --state-file runtime/iuh_event_state.json --interval 120
           elif [ "$SEND_NOTIFICATIONS" = 'true' ]; then
             python -u iuh_telegram_bot.py --once --config /dev/null --state-file runtime/iuh_event_state.json
           else

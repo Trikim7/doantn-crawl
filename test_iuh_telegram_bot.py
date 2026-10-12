@@ -204,6 +204,60 @@ class BotTests(unittest.TestCase):
             self.assertEqual(data["subscribers"]["12345"]["sent"], ["123"])
             self.assertEqual(data["subscribers"]["67890"]["sent"], ["123"])
 
+    def test_each_account_receives_only_its_own_available_events(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "SUBSCRIBER_STATE_KEY": "k" * 48,
+        }, clear=True), patch.object(bot, "get_events") as get_events, patch.object(bot, "send_telegram") as send, contextlib.redirect_stdout(io.StringIO()):
+            path = Path(folder) / "state.json"
+            bot.write_subscribers(path, "token", {"subscribers": {
+                "11111": {"enabled": True, "sent": [], "mssv": "faculty_a", "password": "pass_a"},
+                "22222": {"enabled": True, "sent": [], "mssv": "faculty_b", "password": "pass_b"},
+                "33333": {"enabled": True, "sent": []},
+            }, "offset": None})
+            get_events.side_effect = lambda _session, mssv, _password: {
+                "faculty_a": [event("a"), event("full", "Đã đủ số lượng")],
+                "faculty_b": [event("b")],
+                "common": [event("c")],
+            }[mssv]
+            sessions = {}
+            retries = {}
+            bot.check_once(Mock(), path, "common", "common-pass", "token",
+                           personal_sessions=sessions, personal_retry=retries)
+            bot.check_once(Mock(), path, "common", "common-pass", "token",
+                           personal_sessions=sessions, personal_retry=retries)
+            self.assertEqual([(call.args[2], call.args[3]["id"]) for call in send.call_args_list],
+                             [("11111", "a"), ("22222", "b"), ("33333", "c")])
+            self.assertEqual(get_events.call_count, 6)
+            for _, personal_session in sessions.values():
+                personal_session.close()
+
+    def test_personal_login_failure_does_not_block_other_users(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "SUBSCRIBER_STATE_KEY": "k" * 48,
+        }, clear=True), patch.object(bot, "get_events") as get_events, patch.object(bot, "send_telegram") as send, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            path = Path(folder) / "state.json"
+            bot.write_subscribers(path, "token", {"subscribers": {
+                "11111": {"enabled": True, "sent": [], "mssv": "broken", "password": "wrong"},
+                "22222": {"enabled": True, "sent": [], "mssv": "working", "password": "right"},
+            }, "offset": None})
+            def fetch(_session, mssv, _password):
+                if mssv == "broken":
+                    raise bot.AuthenticationError("login failed")
+                return [event("available")]
+            get_events.side_effect = fetch
+            sessions = {}
+            retries = {}
+            bot.check_once(Mock(), path, "common", "pass", "token",
+                           personal_sessions=sessions, personal_retry=retries)
+            bot.check_once(Mock(), path, "common", "pass", "token",
+                           personal_sessions=sessions, personal_retry=retries)
+            self.assertEqual(get_events.call_count, 3)
+            self.assertEqual([(call.args[2], call.args[3]["id"]) for call in send.call_args_list],
+                             [("22222", "available")])
+            self.assertIn("11111", retries)
+            for _, personal_session in sessions.values():
+                personal_session.close()
+
     def test_blocked_subscriber_does_not_prevent_other_delivery(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(bot, "get_events", return_value=[event()]), contextlib.redirect_stdout(io.StringIO()):
             path = Path(folder) / "state.json"
@@ -236,6 +290,89 @@ class BotTests(unittest.TestCase):
             self.assertEqual(bot.read_subscribers(bot.read_state(path), "token")["offset"], 8)
             with self.assertRaises(RuntimeError):
                 bot.read_subscribers(bot.read_state(path), "another-token")
+
+    def test_separate_key_migrates_token_encryption(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {}, clear=True):
+            path = Path(folder) / "state.json"
+            original = {"subscribers": {"12345": {"enabled": True, "sent": []}}, "offset": 9}
+            bot.write_subscribers(path, "old-token", original)
+            with patch.dict(os.environ, {"SUBSCRIBER_STATE_KEY": "k" * 48}):
+                self.assertEqual(bot.read_subscribers(bot.read_state(path), "old-token"), original)
+                bot.write_subscribers(path, "old-token", original)
+                self.assertEqual(bot.read_subscribers(bot.read_state(path), "new-token"), original)
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_credentials_require_separate_strong_key(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {}, clear=True):
+            path = Path(folder) / "state.json"
+            data = {"subscribers": {"12345": {"enabled": True, "sent": [],
+                                                "mssv": "12345678", "password": "secret"}}, "offset": None}
+            with self.assertRaises(RuntimeError):
+                bot.write_subscribers(path, "token", data)
+            self.assertFalse(path.exists())
+            with patch.dict(os.environ, {"SUBSCRIBER_STATE_KEY": "short"}):
+                with self.assertRaises(RuntimeError):
+                    bot.write_subscribers(path, "token", data)
+
+    def test_account_flow_deletes_inputs_and_does_not_treat_commands_as_passwords(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "SUBSCRIBER_STATE_KEY": "k" * 48, "IUH_ACCOUNT_COLLECTION_ENABLED": "true",
+        }, clear=True), patch.object(bot, "telegram_request", return_value=True) as api, patch.object(bot, "get_events", return_value=[]):
+            path = Path(folder) / "state.json"
+            listener = bot.TelegramCommandListener("token", path)
+            def message(value, number):
+                return {"message": {"chat": {"id": 12345, "type": "private"},
+                                    "message_id": number, "text": value}}
+            listener.handle_update(Mock(), message("/account", 1))
+            listener.handle_update(Mock(), message("12345678", 2))
+            listener.handle_update(Mock(), message("/status", 3))
+            account = bot.read_subscribers(bot.read_state(path), "token")["subscribers"]["12345"]
+            self.assertEqual(account["pending_account"], "password")
+            self.assertNotIn("password", account)
+            listener.handle_update(Mock(), message("test-password", 4))
+            account = bot.read_subscribers(bot.read_state(path), "token")["subscribers"]["12345"]
+            self.assertEqual(account["password"], "test-password")
+            self.assertTrue(account["enabled"])
+            self.assertNotIn("test-password", path.read_text())
+            self.assertEqual([c.args[2] for c in api.call_args_list if c.args[2] == "deleteMessage"],
+                             ["deleteMessage", "deleteMessage"])
+            listener.handle_update(Mock(), message("/forget", 5))
+            account = bot.read_subscribers(bot.read_state(path), "token")["subscribers"]["12345"]
+            self.assertNotIn("password", account)
+            self.assertNotIn("mssv", account)
+
+    def test_password_is_not_saved_when_telegram_cannot_delete(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "SUBSCRIBER_STATE_KEY": "k" * 48, "IUH_ACCOUNT_COLLECTION_ENABLED": "true",
+        }, clear=True), patch.object(bot, "telegram_request") as api, patch.object(bot, "get_events") as get_events:
+            path = Path(folder) / "state.json"
+            listener = bot.TelegramCommandListener("token", path)
+            def message(value, number):
+                return {"message": {"chat": {"id": 12345, "type": "private"},
+                                    "message_id": number, "text": value}}
+            listener.handle_update(Mock(), message("/account", 1))
+            api.side_effect = [True, True, RuntimeError("delete failed"), True]
+            listener.handle_update(Mock(), message("12345678", 2))
+            listener.handle_update(Mock(), message("secret", 3))
+            account = bot.read_subscribers(bot.read_state(path), "token")["subscribers"]["12345"]
+            self.assertNotIn("password", account)
+            get_events.assert_not_called()
+
+    def test_autoreg_is_not_an_available_command(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "SUBSCRIBER_STATE_KEY": "k" * 48, "IUH_ACCOUNT_COLLECTION_ENABLED": "true",
+        }, clear=True), patch.object(bot, "telegram_request") as api:
+            path = Path(folder) / "state.json"
+            bot.write_subscribers(path, "token", {"subscribers": {"12345": {
+                "enabled": True, "sent": [], "mssv": "12345678", "password": "secret",
+                "auto_register": False,
+            }}, "offset": None})
+            listener = bot.TelegramCommandListener("token", path)
+            listener.handle_update(Mock(), {"message": {"chat": {"id": 12345, "type": "private"},
+                                                    "text": "/autoreg on"}})
+            account = bot.read_subscribers(bot.read_state(path), "token")["subscribers"]["12345"]
+            self.assertFalse(account.get("auto_register", False))
+            self.assertIn("chưa hiểu", api.call_args.kwargs["data"]["text"])
 
     def test_failed_send_does_not_mark_event_sent(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(bot, "get_events", return_value=[event()]), patch.object(bot, "send_telegram", side_effect=RuntimeError("failed")):

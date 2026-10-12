@@ -2,13 +2,15 @@
 
 Công cụ theo dõi [cổng thông tin hoạt động của Đoàn Trường Đại học Công nghiệp TP. Hồ Chí Minh (IUH)](https://doantn.iuh.edu.vn/), thuộc **Đoàn Thanh niên Cộng sản Hồ Chí Minh** (*Ho Chi Minh Communist Youth Union*, HCMYU). Bot thông báo qua Telegram khi phát hiện hoạt động còn mở đăng ký.
 
-Dự án viết bằng Python, hỗ trợ chạy trên Ubuntu, VPS Linux hoặc GitHub Actions. Đây là công cụ cộng đồng độc lập, không phải sản phẩm hay kênh thông tin chính thức của IUH hoặc HCMYU. Bot chỉ theo dõi và gửi thông báo; việc đăng ký hoạt động do bạn thực hiện trên cổng IUH.
+Dự án viết bằng Python, hỗ trợ chạy trên Ubuntu, VPS Linux hoặc GitHub Actions. Đây là công cụ cộng đồng độc lập, không phải sản phẩm hay kênh thông tin chính thức của IUH hoặc HCMYU. Bot theo dõi và gửi thông báo; người dùng tự đăng ký hoạt động trên cổng IUH.
 
 ## Tính năng
 
 - Đăng nhập IUH và nhận dạng CAPTCHA bằng mẫu font bitmap, có Tesseract OCR dự phòng.
 - Đọc danh sách hoạt động và phát hiện trạng thái **Đăng ký** hoặc **Đăng ký tham gia**.
 - Mỗi người dùng Telegram có thể gửi `/start` trong chat riêng để nhận tin, `/stop` để tạm dừng.
+- `/account` xác thực MSSV và mật khẩu riêng để mỗi người chỉ nhận hoạt động còn chỗ mà tài khoản IUH của họ nhìn thấy. Người chưa liên kết nhận danh sách chung. Chỉ mở khi chủ bot đặt khóa mã hóa mạnh và bật `IUH_ACCOUNT_COLLECTION_ENABLED=true`.
+- Bot xóa tin chứa MSSV và mật khẩu sau khi nhận, rồi mã hóa dữ liệu khi lưu. `/forget` xóa tài khoản đã lưu và đưa người dùng trở về danh sách chung.
 - Gửi Telegram một lần cho mỗi mã hoạt động và mỗi người nhận, dựa trên lịch sử đã lưu.
 - Làm mới trang tra cứu mỗi chu kỳ; tự đăng nhập lại khi phiên hết hạn.
 - Tự tăng thời gian chờ khi gặp lỗi trong chế độ chạy liên tục.
@@ -56,7 +58,8 @@ Tạo Telegram bot qua [BotFather](https://t.me/BotFather), rồi gửi `/start`
 | `IUH_PASSWORD` | Mật khẩu IUH |
 | `TELEGRAM_BOT_TOKEN` | Token bot Telegram |
 | `TELEGRAM_CHAT_ID` | Tùy chọn: chat ID cũ để chuyển lịch sử người nhận trước khi bot hỗ trợ nhiều người |
-| `SUBSCRIBER_STATE_KEY` | Tùy chọn: khóa mã hóa cố định cho danh sách người nhận; nên đặt trước lần chạy đầu |
+| `SUBSCRIBER_STATE_KEY` | Khóa mã hóa cố định; bắt buộc và dài ít nhất 32 ký tự trước khi lưu tài khoản IUH |
+| `IUH_ACCOUNT_COLLECTION_ENABLED` | `true` mới mở lệnh `/account`; mặc định tắt |
 | `CAPTCHA_CHARSET` | Tập ký tự CAPTCHA; tùy chọn, mặc định gồm chữ thường và chữ số |
 
 Chế độ `--login-only` chỉ cần MSSV và mật khẩu. Các chế độ gửi thông báo cần thêm `TELEGRAM_BOT_TOKEN`. Nếu chưa đặt `SUBSCRIBER_STATE_KEY`, bot dùng token Telegram làm khóa mã hóa; khi đổi token, dữ liệu người nhận cũ sẽ không giải mã được. Nếu đã đặt khóa riêng, hãy giữ nguyên khóa đó khi đổi token. Có thể dùng biến môi trường thay cho tệp cấu hình; biến môi trường được ưu tiên. Tùy chọn `--config PATH` chọn tệp khác.
@@ -85,22 +88,22 @@ venv/bin/python iuh_telegram_bot.py --once
 venv/bin/python -u iuh_telegram_bot.py
 ```
 
-Mặc định bot kiểm tra mỗi 10 phút. Nhấn `Ctrl+C` để dừng. Khoảng kiểm tra tối thiểu là 300 giây. Có thể chỉ định khoảng khác, cấu hình riêng và tệp lịch sử:
+Mặc định bot kiểm tra mỗi 2 phút. Nhấn `Ctrl+C` để dừng. Khoảng kiểm tra tối thiểu là 120 giây. Có thể chỉ định khoảng khác, cấu hình riêng và tệp lịch sử:
 
 ```bash
 venv/bin/python -u iuh_telegram_bot.py \
-  --interval 600 \
+  --interval 120 \
   --config /path/to/iuh_bot.env \
   --state-file runtime/iuh_event_state.json
 ```
 
-Bot giữ cookie trong phiên hiện tại, lấy trang tra cứu mới với header chống cache và đăng nhập lại khi hết phiên hoặc máy chủ trả HTTP 401/403. Chế độ liên tục sẽ chờ lâu hơn sau lỗi, tối đa 60 phút với khoảng mặc định, rồi trở về chu kỳ bình thường sau khi thành công. `--once` và `--login-only` kết thúc với mã lỗi nếu không chạy được.
+Bot giữ cookie riêng cho từng tài khoản đã liên kết và một phiên chung cho người chưa liên kết, lấy trang tra cứu mới với header chống cache và đăng nhập lại khi hết phiên hoặc máy chủ trả HTTP 401/403. Tài khoản riêng đăng nhập lỗi sẽ chờ 15 phút trước khi thử lại; lỗi khác chờ 5 phút, không chặn người dùng khác. Chế độ liên tục chờ lâu hơn khi lần quét chung lỗi, rồi trở về chu kỳ bình thường sau khi thành công. `--once` và `--login-only` kết thúc với mã lỗi nếu lần kiểm tra chung không chạy được.
 
-Khi chạy liên tục, bot đồng thời nhận lệnh trong chat riêng: `/start` để được chào và bật thông báo, `/status` để xem trạng thái, `/stop` để tạm dừng hoặc `/help` để xem hướng dẫn. Bot không đăng ký chat nhóm. Danh sách người nhận, trạng thái bật/tắt, lịch sử gửi riêng của từng người và vị trí lệnh đã xử lý được mã hóa trước khi lưu để giữ nguyên sau khi GitHub Actions khởi động lại. Chế độ `--once` chỉ gửi cho những người đã đăng ký; để nhận `/start`, cần bật chế độ chạy liên tục.
+Khi chạy liên tục, bot đồng thời nhận lệnh trong chat riêng: `/start` để bật thông báo chung, `/account` để nhập MSSV rồi mật khẩu IUH, `/status` để xem trạng thái, `/stop` để tạm dừng, `/forget` để xóa tài khoản hoặc `/help` để xem hướng dẫn. Sau khi `/account` xác thực thành công, thông báo được bật và chuyển sang danh sách riêng từ lần quét tiếp theo. Bot không đăng ký chat nhóm. Danh sách người nhận, trạng thái bật/tắt, lịch sử gửi riêng của từng người và vị trí lệnh đã xử lý được mã hóa trước khi lưu để giữ nguyên sau khi GitHub Actions khởi động lại. Chế độ `--once` chỉ gửi cho những người đã đăng ký; để nhận lệnh, cần bật chế độ chạy liên tục. Tin nhắn bot không phải Secret Chat; việc xóa tin sau khi nhận không xóa bản sao có thể đã lưu ở nơi khác.
 
 ## GitHub Actions
 
-Workflow [`iuh-bot.yml`](.github/workflows/iuh-bot.yml) giữ bot chạy liên tục trên runner và kiểm tra IUH mỗi 5 phút. Lịch cron cũng chạy mỗi 5 phút; concurrency giữ tối đa một lượt kế tiếp trong hàng đợi để tiếp tục sau khi job hiện tại kết thúc. Mỗi job GitHub-hosted tối đa 6 giờ, nên đây là cách nối các phiên liên tục trên Actions chứ không phải một tiến trình vô hạn. Trong phiên chạy liên tục, bot đọc lệnh Telegram gần như ngay lập tức qua long polling.
+Workflow [`iuh-bot.yml`](.github/workflows/iuh-bot.yml) giữ bot chạy liên tục trên runner và kiểm tra IUH mỗi 2 phút. Lịch cron khởi động phiên tiếp theo mỗi 5 phút; concurrency giữ tối đa một lượt kế tiếp trong hàng đợi để tiếp tục sau khi job hiện tại kết thúc. Mỗi job GitHub-hosted tối đa 6 giờ, nên đây là cách nối các phiên liên tục trên Actions chứ không phải một tiến trình vô hạn. Trong phiên chạy liên tục, bot đọc lệnh Telegram gần như ngay lập tức qua long polling.
 
 ### Thêm thông tin bí mật
 
@@ -110,7 +113,7 @@ Trong repo, mở **Settings → Secrets and variables → Actions → Secrets** 
 - `IUH_PASSWORD`
 - `TELEGRAM_BOT_TOKEN`
 
-Nên thêm `SUBSCRIBER_STATE_KEY` (một chuỗi bí mật dài, giữ cố định) trước khi bot nhận người đăng ký đầu tiên. Có thể giữ `TELEGRAM_CHAT_ID` cũ để chuyển lịch sử nhận tin của tài khoản chủ bot; người dùng mới không cần chat ID.
+Thêm `SUBSCRIBER_STATE_KEY` là một chuỗi ngẫu nhiên dài ít nhất 32 ký tự, giữ cố định. Bot sẽ chuyển trạng thái cũ vốn mã hóa bằng token sang khóa riêng trong lần chạy liên tục đầu tiên. Xác nhận đã chuyển xong trước khi đổi token bot; nếu đổi token trước, trạng thái cũ có thể không giải mã được. Sau khi khóa riêng và bot đã hoạt động, đặt repository Variable `IUH_ACCOUNT_COLLECTION_ENABLED=true` để mở `/account`. Token bot từng lộ cần được đổi trong BotFather và cập nhật lại GitHub Secret `TELEGRAM_BOT_TOKEN` sau khi chuyển trạng thái. Có thể giữ `TELEGRAM_CHAT_ID` cũ để chuyển lịch sử nhận tin của tài khoản chủ bot; người dùng mới không cần chat ID.
 
 Nhập từng giá trị vào GitHub Secrets; không tải tệp `iuh_bot.env` lên repo.
 
@@ -122,11 +125,11 @@ Khi muốn bắt đầu gửi thông báo, có thể bật `send_notifications` 
 
 ### Bật lịch tự động
 
-Repository Variable `IUH_SCHEDULE_ENABLED=true` hiện đã được bật. Workflow chạy liên tục, kiểm tra mỗi 5 phút và gửi Telegram khi phát hiện hoạt động phù hợp. Đổi biến thành `false` hoặc xóa biến trong **Settings → Secrets and variables → Actions → Variables** để tạm dừng lịch.
+Repository Variable `IUH_SCHEDULE_ENABLED=true` hiện đã được bật. Workflow chạy liên tục, kiểm tra mỗi 2 phút và gửi Telegram khi phát hiện hoạt động phù hợp. Đổi biến thành `false` hoặc xóa biến trong **Settings → Secrets and variables → Actions → Variables** để tạm dừng lịch.
 
 Thời gian chạy phụ thuộc GitHub và có thể bị trễ; đây không phải cập nhật tức thời. Runner chuẩn GitHub-hosted miễn phí cho repo public. Nếu đổi repo về private, mỗi job làm tròn lên phút kế tiếp; lịch 5 phút có thể tiêu thụ khoảng 8.640 phút trong 30 ngày nếu mỗi job dưới một phút, nên cần kiểm tra quota và billing. Xem [thông tin thanh toán GitHub Actions](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 
-Workflow lưu lịch sử trên nhánh `bot-state`, trong tệp `iuh_event_state.json`. Token `GITHUB_TOKEN` chỉ được cấp quyền ghi nội dung repo trong job. Danh sách chat ID, trạng thái đăng ký và lịch sử gửi từng người nằm trong phần mã hóa; tệp không chứa mật khẩu hoặc cookie. Nếu job bị hủy đột ngột hoặc không lưu được lịch sử sau khi gửi tin, lượt sau có thể gửi trùng.
+Workflow lưu lịch sử trên nhánh `bot-state`, trong tệp `iuh_event_state.json`. Token `GITHUB_TOKEN` chỉ được cấp quyền ghi nội dung repo trong job. Danh sách chat ID, trạng thái đăng ký và lịch sử gửi từng người nằm trong phần mã hóa. Nếu mở `/account`, MSSV và mật khẩu cũng nằm trong phần mã hóa trên nhánh công khai này; người giữ khóa có thể giải mã chúng. Không lưu cookie. Nếu job bị hủy đột ngột hoặc không lưu được lịch sử sau khi gửi tin, lượt sau có thể gửi trùng.
 
 ## Chạy nền với systemd
 
